@@ -24,7 +24,7 @@ async function bootstrap() {
 
   // Swagger
   const config = new DocumentBuilder()
-    .setTitle('LeadFilter API')
+    .setTitle('LeadFilter with ai API')
     .setDescription(
       `Multi-tenant AI-powered lead qualification backend.
       
