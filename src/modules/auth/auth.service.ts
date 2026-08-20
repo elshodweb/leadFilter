@@ -117,7 +117,7 @@ export class AuthService {
     const accessSecret = this.configService.get<string>('jwt.accessSecret')!;
     const refreshSecret = this.configService.get<string>('jwt.refreshSecret')!;
     const accessExpiresIn =
-      this.configService.get<string>('jwt.accessExpiresIn') || '15m';
+      this.configService.get<string>('jwt.accessExpiresIn') || '7d';
     const refreshExpiresIn =
       this.configService.get<string>('jwt.refreshExpiresIn') || '7d';
 
