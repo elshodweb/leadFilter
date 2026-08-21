@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { SeederService } from './seeder.service';
@@ -27,6 +27,23 @@ import {
       useFactory: (configService: ConfigService) => ({
         uri: configService.get<string>('mongodb.uri'),
         dbName: configService.get<string>('mongodb.dbName'),
+        connectionFactory: (connection) => {
+          const logger = new Logger('Database');
+          const dbName = configService.get<string>('mongodb.dbName') || 'default';
+          connection.on('connected', () => {
+            logger.log(`🍃 Connected to MongoDB database: [${dbName}]`);
+          });
+          connection.on('error', (err: any) => {
+            logger.error(`❌ MongoDB connection error: ${err.message}`, err.stack);
+          });
+          connection.on('disconnected', () => {
+            logger.warn('⚠️  MongoDB disconnected');
+          });
+          connection.on('reconnected', () => {
+            logger.log('🔄 MongoDB reconnected');
+          });
+          return connection;
+        },
       }),
       inject: [ConfigService],
     }),

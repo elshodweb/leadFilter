@@ -15,6 +15,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 @Module({
@@ -36,6 +37,8 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // Apply roles guard globally
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Global logging interceptor: logs all HTTP requests, responses, latencies and errors
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     // Global response transform interceptor: { statusCode, data, error: null }
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
     // Global HTTP exception filter: { statusCode, data: null, error }

@@ -58,7 +58,7 @@ export class ChatRepository {
     update: UpdateQuery<Chat>,
   ): Promise<ChatDocument | null> {
     return this.model
-      .findByIdAndUpdate(id, update, { new: true })
+      .findByIdAndUpdate(id, update, { returnDocument: 'after' })
       .lean() as Promise<ChatDocument | null>;
   }
 
@@ -70,7 +70,7 @@ export class ChatRepository {
       .findByIdAndUpdate(
         chatId,
         { $set: { collectedData: data } },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .lean() as Promise<ChatDocument | null>;
   }
@@ -89,7 +89,7 @@ export class ChatRepository {
             updatedAt: sentTime,
           },
         },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .lean() as Promise<ChatDocument | null>;
   }

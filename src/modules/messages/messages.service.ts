@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { MessageRepository } from './repositories/message.repository';
 import {
   MessageDirection,
@@ -9,6 +9,8 @@ import {
 
 @Injectable()
 export class MessagesService {
+  private readonly logger = new Logger(MessagesService.name);
+
   constructor(private readonly repo: MessageRepository) {}
 
   saveIncoming(
@@ -17,6 +19,9 @@ export class MessagesService {
     content: string,
     externalMessageId?: string,
   ) {
+    this.logger.debug(
+      `Saving incoming message for chat ${chatId}: "${content.substring(0, 30)}..."`,
+    );
     return this.repo.create({
       organizationId: organizationId as any,
       chatId: chatId as any,
@@ -31,6 +36,9 @@ export class MessagesService {
   }
 
   saveAiReply(organizationId: string, chatId: string, content: string) {
+    this.logger.debug(
+      `Saving AI reply for chat ${chatId}: "${content.substring(0, 30)}..."`,
+    );
     return this.repo.create({
       organizationId: organizationId as any,
       chatId: chatId as any,
@@ -44,6 +52,9 @@ export class MessagesService {
   }
 
   saveHumanMessage(organizationId: string, chatId: string, content: string) {
+    this.logger.log(
+      `Saving Human message for chat ${chatId}: "${content.substring(0, 30)}..."`,
+    );
     return this.repo.create({
       organizationId: organizationId as any,
       chatId: chatId as any,
@@ -57,6 +68,7 @@ export class MessagesService {
   }
 
   getChatHistory(chatId: string, page: number, limit: number) {
+    this.logger.debug(`Fetching chat history for chat ${chatId} (page=${page}, limit=${limit})`);
     return this.repo.findByChatId(chatId, page, limit);
   }
 

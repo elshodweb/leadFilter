@@ -31,11 +31,35 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const resObj = res as Record<string, any>;
         errorMessage = resObj.message || resObj.error || resObj;
       }
+
+      const user = (request as any)?.user;
+      const userContext = user
+        ? ` [User: ${user.userId || user.sub}, Org: ${user.organizationId}]`
+        : '';
+
+      if (status >= 500) {
+        this.logger.error(
+          `[${request.method}] ${request.url}${userContext} - Server Error ${status}: ${JSON.stringify(errorMessage)}`,
+          (exception as any).stack,
+        );
+      } else {
+        this.logger.warn(
+          `[${request.method}] ${request.url}${userContext} - Client Error ${status}: ${JSON.stringify(errorMessage)}`,
+        );
+      }
     } else if (exception instanceof Error) {
       errorMessage = exception.message;
+      const user = (request as any)?.user;
+      const userContext = user
+        ? ` [User: ${user.userId || user.sub}, Org: ${user.organizationId}]`
+        : '';
       this.logger.error(
-        `[${request.method}] ${request.url} - Unexpected error: ${exception.message}`,
+        `[${request.method}] ${request.url}${userContext} - Unhandled Exception: ${exception.message}`,
         exception.stack,
+      );
+    } else {
+      this.logger.error(
+        `[${request.method}] ${request.url} - Unknown Exception: ${JSON.stringify(exception)}`,
       );
     }
 

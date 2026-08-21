@@ -8,6 +8,13 @@ export class WsValidationPipe extends ValidationPipe {
   }
 
   async transform(value: any, metadata: ArgumentMetadata) {
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value);
+      } catch {
+        // Keep original if not JSON
+      }
+    }
     try {
       return await super.transform(value, metadata);
     } catch (err: any) {

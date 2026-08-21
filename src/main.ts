@@ -1,11 +1,17 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule, {
+    logger:
+      process.env.NODE_ENV === 'production'
+        ? ['log', 'error', 'warn']
+        : ['log', 'error', 'warn', 'debug', 'verbose'],
+  });
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -53,9 +59,15 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`🚀 Server running on http://localhost:${port}`);
-  console.log(`📖 Swagger UI: http://localhost:${port}/api`);
-  console.log(`🔌 WebSocket:  ws://localhost:${port}`);
+  logger.log(`🚀 Server running on http://localhost:${port}`);
+  logger.log(`📖 Swagger UI: http://localhost:${port}/api`);
+  logger.log(`🔌 WebSocket:  ws://localhost:${port}`);
+  logger.log(
+    `🤖 AI Model:    ${process.env.OPENAI_MODEL || 'gpt-4.1-mini'} (OpenAI Key: ${process.env.OPENAI_API_KEY ? 'Configured' : 'NOT SET'})`,
+  );
+  logger.log(
+    `🗄️  MongoDB:     ${process.env.MONGODB_URI ? 'Configured' : 'mongodb://localhost:27017'} [db: ${process.env.MONGODB_DB_NAME || 'lead_filter'}]`,
+  );
 }
 
 bootstrap();

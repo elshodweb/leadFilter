@@ -3,88 +3,75 @@ import {
   Controller,
   Get,
   Logger,
-  Post,
+  Param,
+  Patch,
   Query,
-  Res,
+  Req,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ChatsService } from './chats.service';
-import { ChatChannel } from './schemas/chat.schema';
-import { Public } from '../auth/decorators/public.decorator';
-import { OrganizationsService } from '../organizations/organizations.service';
-import { OrganizationStatus } from '../organizations/schemas/organization.schema';
+import { MessagesService } from '../messages/messages.service';
+import { ListChatsDto } from './dto/list-chats.dto';
+import { UpdateChatDto } from './dto/update-chat.dto';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+import { UserRole } from '../users/schemas/user.schema';
+import type { AuthenticatedRequest } from '../../common/interfaces/auth.interface';
 
-@ApiTags('Webhook')
-@Public()
-@Controller('webhook')
+@ApiTags('Chats')
+@ApiBearerAuth()
+@Controller('chats')
 export class ChatsController {
   private readonly logger = new Logger(ChatsController.name);
 
   constructor(
     private readonly chatsService: ChatsService,
-    private readonly orgsService: OrganizationsService,
+    private readonly messagesService: MessagesService,
   ) {}
 
-  /** Instagram webhook verification (GET) */
-  @Get('instagram')
-  @ApiOperation({ summary: 'Instagram webhook verification' })
-  @ApiQuery({ name: 'hub.mode', required: false })
-  @ApiQuery({ name: 'hub.challenge', required: false })
-  @ApiQuery({ name: 'hub.verify_token', required: false })
-  async verifyInstagram(
-    @Query('hub.mode') mode: string,
-    @Query('hub.challenge') challenge: string,
-    @Query('hub.verify_token') verifyToken: string,
-    @Res() res: Response,
-  ) {
-    if (mode === 'subscribe' && verifyToken) {
-      const org = await this.orgsService.findByVerifyToken(verifyToken);
-      if (org && org.status === OrganizationStatus.ACTIVE) {
-        return res.status(200).send(challenge);
-      }
+  
+  @Get()
+  @ApiOperation({
+    summary: 'List chats (Admin can filter by organizationId or view all)',
+  })
+  findAll(@Req() req: AuthenticatedRequest, @Query() dto: ListChatsDto) {
+    const isAdmin = req.user.role === UserRole.ADMIN;
+    if (!isAdmin) {
+      dto.organizationId = req.user.organizationId;
     }
-    return res.status(403).json({ message: 'Forbidden' });
+    return this.chatsService.findAll(dto);
   }
 
-  /** Instagram webhook event receiver (POST) */
-  @Post('instagram')
-  @ApiOperation({ summary: 'Receive Instagram messages' })
-  async receiveInstagram(@Body() body: any) {
-    if (body?.object !== 'instagram') return { status: 'ignored' };
+  @Get(':id')
+  @ApiOperation({ summary: 'Get single chat by ID' })
+  @ApiParam({ name: 'id' })
+  findOne(@Param('id') id: string) {
+    return this.chatsService.findOne(id);
+  }
 
-    for (const entry of body.entry || []) {
-      const businessAccountId = entry.id;
-      const org =
-        await this.orgsService.findByBusinessAccountId(businessAccountId);
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update chat status or data' })
+  @ApiParam({ name: 'id' })
+  update(@Param('id') id: string, @Body() dto: UpdateChatDto) {
+    return this.chatsService.update(id, dto);
+  }
 
-      if (!org) {
-        this.logger.warn(
-          `No organization found for Instagram Business Account ID: ${businessAccountId}`,
-        );
-        continue;
-      }
-
-      const organizationId = org._id.toString();
-
-      for (const messaging of entry.messaging || []) {
-        const externalChatId = messaging.sender?.id;
-        const externalUserId = messaging.sender?.id;
-        const text = messaging.message?.text;
-        const externalMessageId = messaging.message?.mid;
-
-        if (!externalChatId || !text) continue;
-
-        await this.chatsService.handleIncomingMessage({
-          organizationId,
-          channel: ChatChannel.INSTAGRAM,
-          externalChatId,
-          externalUserId,
-          content: text,
-          externalMessageId,
-        });
-      }
-    }
-    return { status: 'ok' };
+  @Get(':id/messages')
+  @ApiOperation({ summary: 'Get message history for a chat' })
+  @ApiParam({ name: 'id' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  getMessages(
+    @Param('id') id: string,
+    @Query() pagination: PaginationDto,
+  ) {
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 50;
+    return this.messagesService.getChatHistory(id, +page, +limit);
   }
 }

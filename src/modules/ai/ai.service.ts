@@ -19,6 +19,12 @@ export class AiService {
   }
 
   async processMessage(ctx: AiContextDto): Promise<AiResponseDto> {
+    const startTime = Date.now();
+    this.logger.debug(
+      `[AI Request] Chat: ${ctx.chatId} (Org: ${ctx.organizationId}) | Model: ${this.model} | History: ${ctx.chatHistory.length} msgs | Questions: ${ctx.leadQuestions.length}`,
+    );
+    this.logger.debug(`[AI Incoming Customer Message] "${ctx.incomingMessage}"`);
+
     const systemPrompt = this.buildSystemPrompt(ctx);
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -34,16 +40,33 @@ export class AiService {
         temperature: 0.4,
       });
 
+      const duration = Date.now() - startTime;
       const raw = completion.choices[0]?.message?.content || '{}';
       const parsed = JSON.parse(raw) as AiResponseDto;
+
+      const usage = completion.usage
+        ? ` | Tokens: prompt=${completion.usage.prompt_tokens}, completion=${completion.usage.completion_tokens}, total=${completion.usage.total_tokens}`
+        : '';
+
+      this.logger.log(
+        `[AI Response] Chat: ${ctx.chatId} | +${duration}ms${usage} | isComplete: ${parsed.isComplete ?? false}`,
+      );
+      this.logger.debug(`[AI Reply Generated] "${parsed.reply}"`);
+      this.logger.debug(
+        `[AI Collected Data State] ${JSON.stringify(parsed.collectedData || ctx.collectedData)}`,
+      );
 
       return {
         reply: parsed.reply || '',
         collectedData: parsed.collectedData || ctx.collectedData,
         isComplete: parsed.isComplete ?? false,
       };
-    } catch (error) {
-      this.logger.error('OpenAI call failed', error);
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.logger.error(
+        `[AI Error] Chat: ${ctx.chatId} failed after +${duration}ms: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }

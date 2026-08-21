@@ -47,7 +47,7 @@ export class LeadRepository {
 
   async update(id: string, data: Partial<Lead>): Promise<LeadDocument | null> {
     return this.model
-      .findByIdAndUpdate(id, data, { new: true })
+      .findByIdAndUpdate(id, data, { returnDocument: 'after' })
       .lean() as Promise<LeadDocument | null>;
   }
 }

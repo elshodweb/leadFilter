@@ -54,7 +54,7 @@ export class UserRepository {
 
   async update(id: string, data: Partial<User>): Promise<UserDocument | null> {
     return this.model
-      .findByIdAndUpdate(id, data, { new: true })
+      .findByIdAndUpdate(id, data, { returnDocument: 'after' })
       .lean() as Promise<UserDocument | null>;
   }
 

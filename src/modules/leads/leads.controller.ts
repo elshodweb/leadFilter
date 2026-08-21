@@ -30,10 +30,11 @@ export class LeadsController {
   @Get()
   @ApiOperation({
     summary:
-      'List leads (Admin can filter by organizationId or view own org leads)',
+      'List leads (Admin can filter by organizationId or view all)',
   })
   findAll(@Req() req: AuthenticatedRequest, @Query() dto: ListLeadsDto) {
-    if (!dto.organizationId) {
+    const isAdmin = req.user.role === UserRole.ADMIN;
+    if (!isAdmin) {
       dto.organizationId = req.user.organizationId;
     }
     return this.svc.findAll(dto);

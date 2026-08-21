@@ -32,6 +32,9 @@ export class MessagesGateway {
   @SubscribeMessage('messages:list')
   @UsePipes(WsValidationPipe)
   async handleMessageList(@MessageBody() dto: ListMessagesDto) {
+    this.logger.debug(
+      `[WS messages:list] ChatId: ${dto.chatId}, Page: ${dto.page || 1}, Limit: ${dto.limit || 20}`,
+    );
     return this.messagesService.getChatHistory(
       dto.chatId,
       dto.page ?? 1,
@@ -47,6 +50,10 @@ export class MessagesGateway {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const orgId = client.user.organizationId;
+    this.logger.log(
+      `[WS message:send] Agent ${client.user.email} -> Chat ${dto.chatId}: "${dto.content.substring(0, 40)}..."`,
+    );
+
     const msg = await this.messagesService.saveHumanMessage(
       orgId,
       dto.chatId,
@@ -68,6 +75,9 @@ export class MessagesGateway {
   @OnEvent('message.new')
   broadcastNewMessage(message: any) {
     const chatId = message.chatId?.toString();
+    this.logger.debug(
+      `[WS Broadcast message:new] Emitting to room "chat:${chatId}" and "org:${message.organizationId}"`,
+    );
     this.server.to(`chat:${chatId}`).emit('message:new', message);
     this.server
       .to(`org:${message.organizationId}`)
@@ -77,6 +87,9 @@ export class MessagesGateway {
   @OnEvent('message.ai')
   broadcastAiMessage(message: any) {
     const chatId = message.chatId?.toString();
+    this.logger.debug(
+      `[WS Broadcast message:ai] Emitting AI reply to room "chat:${chatId}" and "org:${message.organizationId}"`,
+    );
     this.server.to(`chat:${chatId}`).emit('message:ai', message);
     this.server.to(`org:${message.organizationId}`).emit('message:ai', message);
   }

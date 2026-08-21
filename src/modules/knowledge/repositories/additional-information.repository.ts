@@ -67,7 +67,7 @@ export class AdditionalInformationRepository {
     dto: UpdateAdditionalInfoDto,
   ): Promise<AdditionalInformationDocument | null> {
     return this.model
-      .findByIdAndUpdate(id, dto, { new: true })
+      .findByIdAndUpdate(id, dto, { returnDocument: 'after' })
       .lean() as Promise<AdditionalInformationDocument | null>;
   }
 

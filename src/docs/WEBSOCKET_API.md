@@ -536,7 +536,80 @@ Listen for an `error` event with `code: 401` and re-connect with a fresh access 
 
 ---
 
-## Auth REST Endpoints (not WebSocket)
+---
+
+## Chat List Ordering & Reload Strategy (REST & WebSocket)
+
+### 1. How Chat Ordering Works on the Backend
+- Whenever any new message arrives (customer message, AI reply, or human operator message), the backend updates **`chat.lastMessage`** and sets **`chat.updatedAt = new Date()`**.
+- Both **REST API (`GET /chats`)** and **WebSocket (`chat:list`)** queries sort documents by **`.sort({ updatedAt: -1 })`**.
+- An index `ChatSchema.index({ organizationId: 1, updatedAt: -1 })` ensures instant retrieval.
+- **On page load or browser reload (F5)**, the chat with the latest message is **always the first item (`items[0]`)**.
+
+### 2. Real-Time Chat Reordering on Frontend (React / Vue)
+When a chat receives a new message, the server emits `chat:updated`. The frontend should move that chat to index `0` without making a full reload:
+
+```tsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { io } from 'socket.io-client';
+
+export function ChatSidebar({ organizationId, token }) {
+  const [chats, setChats] = useState([]);
+
+  // 1. Initial Load / Page Reload (REST API)
+  useEffect(() => {
+    axios.get(`http://localhost:3000/chats?organizationId=${organizationId}&page=1&limit=30`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(res => {
+      setChats(res.data.data.items);
+    });
+  }, [organizationId, token]);
+
+  // 2. Real-Time WebSocket Updates
+  useEffect(() => {
+    const socket = io('http://localhost:3000', {
+      auth: { token }
+    });
+
+    socket.emit('join:org', { organizationId });
+
+    // When an existing chat gets a new message -> bump to the very top (index 0)
+    socket.on('chat:updated', (updatedChat) => {
+      setChats((prev) => [
+        updatedChat,
+        ...prev.filter((c) => c._id !== updatedChat._id),
+      ]);
+    });
+
+    // When a brand new customer starts a chat -> prepend to top
+    socket.on('chat:new', (newChat) => {
+      setChats((prev) => [
+        newChat,
+        ...prev.filter((c) => c._id !== newChat._id),
+      ]);
+    });
+
+    return () => socket.disconnect();
+  }, [organizationId, token]);
+
+  return (
+    <div className="chat-list">
+      {chats.map((chat) => (
+        <div key={chat._id} className="chat-card">
+          <h4>{chat.externalUserId}</h4>
+          <p>{chat.lastMessage?.text}</p>
+          <small>{new Date(chat.updatedAt).toLocaleTimeString()}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+## Complete REST Endpoints Reference
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
@@ -545,6 +618,7 @@ Listen for an `error` event with `code: 401` and re-connect with a fresh access 
 | POST | `/auth/refresh` | Refresh token | Get new token pair |
 | POST | `/auth/logout` | Bearer | Logout |
 | GET | `/auth/me` | Bearer | Current user info |
+| GET | `/organizations` | Bearer + ADMIN | List all organizations |
 | GET | `/organizations/my` | Bearer + ADMIN | Current user's organization |
 | PATCH | `/organizations/my` | Bearer + ADMIN | Update current user's organization |
 | POST | `/users` | Bearer + ADMIN | Create user in org |
@@ -552,6 +626,10 @@ Listen for an `error` event with `code: 401` and re-connect with a fresh access 
 | GET | `/users/:id` | Bearer + ADMIN | Get user |
 | PATCH | `/users/:id` | Bearer + ADMIN | Update user |
 | DELETE | `/users/:id` | Bearer + ADMIN | Delete user |
+| GET | `/chats` | Bearer | List paginated chats (sorted by latest message `updatedAt: -1`) |
+| GET | `/chats/:id` | Bearer | Get single chat by ID |
+| PATCH | `/chats/:id` | Bearer | Update chat status (`AI_PROCESSING`, `RETURNED_HUMAN`) |
+| GET | `/chats/:id/messages` | Bearer | Get paginated message history for chat |
 | POST | `/organizations/:orgId/lead-questions` | Bearer + ADMIN | Add lead question (org scoped) |
 | GET | `/organizations/:orgId/lead-questions` | Bearer + ADMIN | List lead questions (org scoped) |
 | POST | `/organizations/:orgId/company-information` | Bearer + ADMIN | Add company info (org scoped) |
@@ -563,3 +641,4 @@ Listen for an `error` event with `code: 401` and re-connect with a fresh access 
 | PATCH | `/leads/:id` | Bearer + ADMIN | Update lead (org scoped) |
 | GET | `/webhook/instagram` | Public | Instagram webhook verification |
 | POST | `/webhook/instagram` | Public | Instagram incoming message receiver |
+

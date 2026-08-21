@@ -4,6 +4,7 @@ import { Chat, ChatSchema } from './schemas/chat.schema';
 import { ChatRepository } from './repositories/chat.repository';
 import { ChatsService } from './chats.service';
 import { ChatsController } from './chats.controller';
+import { WebhookController } from './webhook.controller';
 import { ChatsGateway } from './chats.gateway';
 import { MessagesModule } from '../messages/messages.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
@@ -21,7 +22,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     OrganizationsModule,
   ],
   providers: [ChatRepository, ChatsService, ChatsGateway],
-  controllers: [ChatsController],
+  controllers: [ChatsController, WebhookController],
   exports: [ChatsService],
 })
 export class ChatsModule {}

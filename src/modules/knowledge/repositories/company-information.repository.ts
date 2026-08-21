@@ -67,7 +67,7 @@ export class CompanyInformationRepository {
     dto: UpdateCompanyInfoDto,
   ): Promise<CompanyInformationDocument | null> {
     return this.model
-      .findByIdAndUpdate(id, dto, { new: true })
+      .findByIdAndUpdate(id, dto, { returnDocument: 'after' })
       .lean() as Promise<CompanyInformationDocument | null>;
   }
 

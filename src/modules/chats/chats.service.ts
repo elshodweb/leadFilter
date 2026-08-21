@@ -23,7 +23,10 @@ export class ChatsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  findAll(dto: ListChatsDto) {
+  async findAll(dto: ListChatsDto) {
+    this.logger.debug(
+      `Listing chats with filter: org=${dto.organizationId || 'all'}, status=${dto.status || 'all'}, page=${dto.page || 1}`,
+    );
     const filter: Record<string, any> = {};
     if (dto.organizationId) filter.organizationId = dto.organizationId;
     if (dto.status) filter.status = dto.status;
@@ -31,16 +34,22 @@ export class ChatsService {
   }
 
   findOne(id: string) {
+    this.logger.debug(`Fetching chat by id: ${id}`);
     return this.chatRepo.findById(id);
   }
 
   async update(id: string, dto: UpdateChatDto) {
+    this.logger.log(`Updating chat ${id}: ${JSON.stringify(dto)}`);
     const chat = await this.chatRepo.update(id, dto);
-    if (chat) this.eventEmitter.emit('chat.updated', chat);
+    if (chat) {
+      this.logger.debug(`Emitting chat.updated for chat ${id}`);
+      this.eventEmitter.emit('chat.updated', chat);
+    }
     return chat;
   }
 
   async updateLastMessage(chatId: string, text: string, sentTime = new Date()) {
+    this.logger.debug(`Updating last message for chat ${chatId}: "${text.substring(0, 30)}..."`);
     const chat = await this.chatRepo.updateLastMessage(chatId, text, sentTime);
     if (chat) this.eventEmitter.emit('chat.updated', chat);
     return chat;
@@ -52,6 +61,7 @@ export class ChatsService {
     content: string;
     organizationId: string;
   }) {
+    this.logger.log(`[Event message.human] Agent sent message to chat ${payload.chatId}`);
     await this.updateLastMessage(payload.chatId, payload.content);
   }
 
@@ -75,6 +85,10 @@ export class ChatsService {
       externalMessageId,
     } = params;
 
+    this.logger.log(
+      `[Incoming Message Pipeline] Org: ${organizationId} | Channel: ${channel} | ExternalChat: ${externalChatId} | User: ${externalUserId}`,
+    );
+
     // 1. Find or create chat
     const { doc: chat, created } = await this.chatRepo.findOrCreate(
       organizationId,
@@ -82,7 +96,12 @@ export class ChatsService {
       { channel, externalUserId, status: ChatStatus.AI_PROCESSING },
     );
 
-    if (created) this.eventEmitter.emit('chat.new', chat);
+    if (created) {
+      this.logger.log(`[Pipeline] New Chat created: ${chat._id}`);
+      this.eventEmitter.emit('chat.new', chat);
+    } else {
+      this.logger.debug(`[Pipeline] Existing Chat matched: ${chat._id} (status: ${chat.status})`);
+    }
 
     // 2. Save incoming message
     const incomingMsg = await this.messagesService.saveIncoming(
@@ -91,6 +110,7 @@ export class ChatsService {
       content,
       externalMessageId,
     );
+    this.logger.debug(`[Pipeline] Incoming message saved: ${incomingMsg._id}`);
     this.eventEmitter.emit('message.new', incomingMsg);
 
     // 3. Update chat lastMessage with incoming message and emit chat.updated
@@ -105,7 +125,7 @@ export class ChatsService {
 
     // 4. If returned to human, skip AI
     if (chat.status === ChatStatus.RETURNED_HUMAN) {
-      this.logger.log(`Chat ${chat._id} is RETURNED_HUMAN — skipping AI`);
+      this.logger.log(`[Pipeline] Chat ${chat._id} is RETURNED_HUMAN — skipping AI response`);
       return {
         chat: updatedAfterIncoming || chat,
         message: incomingMsg,
@@ -117,6 +137,9 @@ export class ChatsService {
     // 5. Load org knowledge context
     const { leadQuestions, companyInfo, additionalInfo } =
       await this.knowledgeService.loadAiContext(organizationId);
+    this.logger.debug(
+      `[Pipeline] Loaded AI context: ${leadQuestions.length} questions, ${companyInfo.length} company info, ${additionalInfo.length} additional info`,
+    );
 
     // 6. Load chat history (last 20 messages)
     const recentMessages = await this.messagesService.getLastN(
@@ -130,8 +153,10 @@ export class ChatsService {
           : ('assistant' as const),
       content: m.content,
     }));
+    this.logger.debug(`[Pipeline] Loaded ${chatHistory.length} chat history items`);
 
     // 7. Call AI
+    this.logger.log(`[Pipeline] Invoking AI for chat ${chat._id}...`);
     const aiResponse = await this.aiService.processMessage({
       organizationId,
       chatId: chat._id.toString(),
@@ -159,6 +184,7 @@ export class ChatsService {
       chat._id.toString(),
       aiResponse.reply,
     );
+    this.logger.debug(`[Pipeline] AI message saved: ${aiMsg._id}`);
     this.eventEmitter.emit('message.ai', aiMsg);
 
     // 9. Update lastMessage with AI reply and collectedData
@@ -178,6 +204,9 @@ export class ChatsService {
     // 10. Create Lead if all questions answered
     let lead: LeadDocument | null = null;
     if (aiResponse.isComplete) {
+      this.logger.log(
+        `[Pipeline] All lead questions answered for chat ${chat._id}! Checking for existing lead...`,
+      );
       const existingLead = await this.leadsService.findByChatId(
         chat._id.toString(),
       );
@@ -188,7 +217,9 @@ export class ChatsService {
           aiResponse.collectedData,
         );
         this.eventEmitter.emit('lead.new', lead);
-        this.logger.log(`Lead created for chat ${chat._id}`);
+        this.logger.log(`[Pipeline] 🎉 New Lead created: ${lead._id} for chat ${chat._id}`);
+      } else {
+        this.logger.debug(`[Pipeline] Lead already exists for chat ${chat._id} (${existingLead._id})`);
       }
     }
 
