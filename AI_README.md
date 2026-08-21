@@ -352,23 +352,29 @@ All HTTP 4xx / 5xx exceptions and runtime errors are caught and formatted by the
 }
 ```
 
-### 📄 Universal Pagination Format
-All list queries across REST (`/organizations`, `/users`, `/leads`, `/organizations/:orgId/lead-questions`, `/organizations/:orgId/company-information`, `/organizations/:orgId/additional-information`) and WebSockets (`chat:list`, `messages:list`, `lead:list`) return standard paginated metadata:
+---
 
-```json
-{
-  "statusCode": 200,
-  "data": {
-    "items": [ /* entities */ ],
-    "total": 45,
-    "page": 1,
-    "limit": 20,
-    "totalPages": 3,
-    "hasNextPage": true,
-    "hasPrevPage": false
-  },
-  "error": null
-}
-```
+## 9. 2-Way Instagram Direct Integration & Operator Echoes
+
+### 🔄 End-to-End Pipeline
+1. **Incoming Customer Message**:
+   - Meta Webhook sends `POST /webhook/instagram` with `is_echo: false`.
+   - `WebhookController` routes to `ChatsService.handleIncomingMessage`.
+   - Customer message saved to DB, `message.new` and `chat.updated` broadcasted to WebSockets.
+   - OpenAI generates assistant reply and updates `collectedData`.
+   - **`InstagramService.sendTextMessage` delivers the AI reply directly to customer's Instagram Direct!**
+   - If all questions are completed, Lead is created automatically.
+
+2. **Operator Replies from Instagram Mobile App / Meta Suite (Echo Messages)**:
+   - Meta Webhook sends `POST /webhook/instagram` with `is_echo: true`.
+   - `WebhookController` routes to `ChatsService.handleEchoMessage`.
+   - Message saved as `senderType: 'HUMAN'`.
+   - Chat status switched to `RETURNED_HUMAN` (AI stops automated replies so human can take over).
+   - Real-time `message.new` and `chat.updated` emitted to web platform dashboard.
+
+3. **Operator Replies from Web Platform Dashboard**:
+   - Operator sends `message:send` via Socket.IO.
+   - `ChatsService` saves human message and **`InstagramService.sendTextMessage` delivers the operator's message to customer's Instagram Direct!**
+
 
 

@@ -7,6 +7,8 @@ import { MessagesService } from '../messages/messages.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { AiService } from '../ai/ai.service';
 import { LeadsService } from '../leads/leads.service';
+import { OrganizationsService } from '../organizations/organizations.service';
+import { InstagramService } from '../instagram/instagram.service';
 import { ListChatsDto } from './dto/list-chats.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 
@@ -20,6 +22,8 @@ export class ChatsService {
     private readonly knowledgeService: KnowledgeService,
     private readonly aiService: AiService,
     private readonly leadsService: LeadsService,
+    private readonly orgsService: OrganizationsService,
+    private readonly instagramService: InstagramService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -63,6 +67,95 @@ export class ChatsService {
   }) {
     this.logger.log(`[Event message.human] Agent sent message to chat ${payload.chatId}`);
     await this.updateLastMessage(payload.chatId, payload.content);
+
+    const chat = await this.chatRepo.findById(payload.chatId);
+    if (chat && chat.channel === ChatChannel.INSTAGRAM) {
+      const org = await this.orgsService.findOne(payload.organizationId);
+      if (org?.instagramAccessToken) {
+        this.logger.debug(
+          `[Event message.human] Delivering human operator message to Instagram user ${chat.externalChatId}...`,
+        );
+        this.instagramService
+          .sendTextMessage({
+            accessToken: org.instagramAccessToken,
+            businessAccountId: org.instagramBusinessAccountId,
+            apiBaseUrl: org.instagramApiBaseUrl,
+            apiVersion: org.metaGraphApiVersion,
+            recipientId: chat.externalChatId,
+            text: payload.content,
+          })
+          .catch((err) => {
+            this.logger.error(
+              `[Event message.human] Failed to send human message to Instagram: ${err.message}`,
+            );
+          });
+      }
+    }
+  }
+
+  /**
+   * Called by WebhookController when an echo message arrives from Meta
+   * (e.g. human manager typed a reply directly in the Instagram app).
+   */
+  async handleEchoMessage(params: {
+    organizationId: string;
+    channel: ChatChannel;
+    externalChatId: string;
+    content: string;
+    externalMessageId?: string;
+  }) {
+    const {
+      organizationId,
+      channel,
+      externalChatId,
+      content,
+      externalMessageId,
+    } = params;
+
+    this.logger.log(
+      `[Echo Message Pipeline] Org: ${organizationId} | ExternalChat: ${externalChatId} | Operator sent text via Instagram App: "${content.substring(0, 35)}..."`,
+    );
+
+    // 1. Find or create chat
+    const { doc: chat, created } = await this.chatRepo.findOrCreate(
+      organizationId,
+      externalChatId,
+      { channel, externalUserId: externalChatId, status: ChatStatus.RETURNED_HUMAN },
+    );
+
+    if (created) {
+      this.logger.log(`[Echo Pipeline] New Chat created: ${chat._id}`);
+      this.eventEmitter.emit('chat.new', chat);
+    }
+
+    // 2. Set chat status to RETURNED_HUMAN so AI stops automatically replying
+    if (chat.status !== ChatStatus.RETURNED_HUMAN) {
+      await this.chatRepo.update(chat._id.toString(), {
+        status: ChatStatus.RETURNED_HUMAN,
+      });
+      chat.status = ChatStatus.RETURNED_HUMAN;
+    }
+
+    // 3. Save as HUMAN message
+    const humanMsg = await this.messagesService.saveHumanMessage(
+      organizationId,
+      chat._id.toString(),
+      content,
+    );
+    this.logger.debug(`[Echo Pipeline] Operator message saved: ${humanMsg._id}`);
+    this.eventEmitter.emit('message.new', humanMsg);
+
+    // 4. Update last message & broadcast chat update to web platform
+    const updatedChat = await this.chatRepo.updateLastMessage(
+      chat._id.toString(),
+      content,
+      new Date(),
+    );
+    if (updatedChat) {
+      this.eventEmitter.emit('chat.updated', updatedChat);
+    }
+
+    return { chat: updatedChat || chat, message: humanMsg };
   }
 
   /**
@@ -186,6 +279,34 @@ export class ChatsService {
     );
     this.logger.debug(`[Pipeline] AI message saved: ${aiMsg._id}`);
     this.eventEmitter.emit('message.ai', aiMsg);
+
+    // 8.1 Deliver AI message to customer on Instagram
+    if (chat.channel === ChatChannel.INSTAGRAM) {
+      const org = await this.orgsService.findOne(organizationId);
+      if (org?.instagramAccessToken) {
+        this.logger.debug(
+          `[Pipeline] Delivering AI response to Instagram user ${chat.externalChatId}...`,
+        );
+        this.instagramService
+          .sendTextMessage({
+            accessToken: org.instagramAccessToken,
+            businessAccountId: org.instagramBusinessAccountId,
+            apiBaseUrl: org.instagramApiBaseUrl,
+            apiVersion: org.metaGraphApiVersion,
+            recipientId: chat.externalChatId,
+            text: aiResponse.reply,
+          })
+          .catch((err) => {
+            this.logger.error(
+              `[Pipeline] Failed to send AI response to Instagram: ${err.message}`,
+            );
+          });
+      } else {
+        this.logger.warn(
+          `[Pipeline] Organization ${organizationId} has no instagramAccessToken configured!`,
+        );
+      }
+    }
 
     // 9. Update lastMessage with AI reply and collectedData
     await this.chatRepo.updateLastMessage(

@@ -83,36 +83,62 @@ export class WebhookController {
       const organizationId = org._id.toString();
 
       for (const messaging of entry.messaging || []) {
-        // Skip echo messages (messages sent by the business/bot itself)
-        if (messaging.message?.is_echo) {
-          this.logger.debug(`Skipping echo message: ${messaging.message?.mid}`);
-          continue;
-        }
-
-        const externalChatId = messaging.sender?.id;
-        const externalUserId = messaging.sender?.id;
+        const isEcho = messaging.message?.is_echo;
         const text = messaging.message?.text;
         const externalMessageId = messaging.message?.mid;
 
-        if (!externalChatId || !text) {
+        if (!text) {
           this.logger.debug(
-            `Skipping messaging event with missing chat ID or text: ${JSON.stringify(messaging)}`,
+            `Skipping messaging event with missing text: ${JSON.stringify(messaging)}`,
           );
           continue;
         }
 
-        this.logger.log(
-          `[Instagram Message] Org: "${org.name}" (${organizationId}) | Sender: ${externalUserId} | MID: ${externalMessageId} | Text: "${text}"`,
-        );
+        if (isEcho) {
+          // Message typed by human operator from Instagram mobile app or Meta Business Suite
+          // In echo messages, recipient.id is the customer
+          const customerChatId = messaging.recipient?.id;
+          if (!customerChatId) {
+            this.logger.debug(
+              `Skipping echo message with missing recipient: ${JSON.stringify(messaging)}`,
+            );
+            continue;
+          }
 
-        await this.chatsService.handleIncomingMessage({
-          organizationId,
-          channel: ChatChannel.INSTAGRAM,
-          externalChatId,
-          externalUserId,
-          content: text,
-          externalMessageId,
-        });
+          this.logger.log(
+            `[Instagram Echo Message] Org: "${org.name}" (${organizationId}) | Customer Recipient: ${customerChatId} | MID: ${externalMessageId} | Text: "${text}"`,
+          );
+
+          await this.chatsService.handleEchoMessage({
+            organizationId,
+            channel: ChatChannel.INSTAGRAM,
+            externalChatId: customerChatId,
+            content: text,
+            externalMessageId,
+          });
+        } else {
+          // Incoming message from Customer
+          const customerUserId = messaging.sender?.id;
+          if (!customerUserId) {
+            this.logger.debug(
+              `Skipping messaging event with missing sender: ${JSON.stringify(messaging)}`,
+            );
+            continue;
+          }
+
+          this.logger.log(
+            `[Instagram Customer Message] Org: "${org.name}" (${organizationId}) | Sender: ${customerUserId} | MID: ${externalMessageId} | Text: "${text}"`,
+          );
+
+          await this.chatsService.handleIncomingMessage({
+            organizationId,
+            channel: ChatChannel.INSTAGRAM,
+            externalChatId: customerUserId,
+            externalUserId: customerUserId,
+            content: text,
+            externalMessageId,
+          });
+        }
       }
     }
     return { status: 'ok' };

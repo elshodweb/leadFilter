@@ -11,6 +11,7 @@ import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { AiModule } from '../ai/ai.module';
 import { LeadsModule } from '../leads/leads.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { InstagramModule } from '../instagram/instagram.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     AiModule,
     LeadsModule,
     OrganizationsModule,
+    InstagramModule,
   ],
   providers: [ChatRepository, ChatsService, ChatsGateway],
   controllers: [ChatsController, WebhookController],
