@@ -63,7 +63,7 @@ export class WebhookController {
       `Instagram webhook event received (object: "${body?.object}", entries: ${body?.entry?.length || 0})`,
     );
 
-    if (body?.object !== 'instagram') {
+    if (body?.object !== 'instagram' && body?.object !== 'page') {
       this.logger.debug(`Ignored non-instagram webhook event: ${body?.object}`);
       return { status: 'ignored' };
     }
@@ -83,6 +83,12 @@ export class WebhookController {
       const organizationId = org._id.toString();
 
       for (const messaging of entry.messaging || []) {
+        // Skip echo messages (messages sent by the business/bot itself)
+        if (messaging.message?.is_echo) {
+          this.logger.debug(`Skipping echo message: ${messaging.message?.mid}`);
+          continue;
+        }
+
         const externalChatId = messaging.sender?.id;
         const externalUserId = messaging.sender?.id;
         const text = messaging.message?.text;
