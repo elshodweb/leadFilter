@@ -42,6 +42,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
           `[${request.method}] ${request.url}${userContext} - Server Error ${status}: ${JSON.stringify(errorMessage)}`,
           (exception as any).stack,
         );
+      } else if (status === 404) {
+        this.logger.debug(
+          `[${request.method}] ${request.url}${userContext} - Not Found 404: ${JSON.stringify(errorMessage)}`,
+        );
       } else {
         this.logger.warn(
           `[${request.method}] ${request.url}${userContext} - Client Error ${status}: ${JSON.stringify(errorMessage)}`,
