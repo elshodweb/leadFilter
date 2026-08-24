@@ -93,4 +93,8 @@ export class ChatRepository {
       )
       .lean() as Promise<ChatDocument | null>;
   }
+
+  async count(filter: Record<string, any> = {}): Promise<number> {
+    return this.model.countDocuments(filter);
+  }
 }

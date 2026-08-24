@@ -47,6 +47,21 @@ export class ChatsController {
     return this.chatsService.findAll(dto);
   }
 
+  @Get('stats')
+  @ApiOperation({
+    summary:
+      'Get chat statistics and counts for tabs (ALL, AI_PROCESSING, RETURNED_HUMAN, COLD, WARM, HOT)',
+  })
+  @ApiQuery({ name: 'organizationId', required: false })
+  getStats(
+    @Req() req: AuthenticatedRequest,
+    @Query('organizationId') orgId?: string,
+  ) {
+    const isAdmin = req.user.role === UserRole.ADMIN;
+    const targetOrgId = isAdmin ? orgId : req.user.organizationId;
+    return this.chatsService.getStats(targetOrgId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get single chat by ID' })
   @ApiParam({ name: 'id' })

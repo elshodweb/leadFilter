@@ -37,6 +37,31 @@ export class ChatsService {
     return this.chatRepo.findAll(filter, dto.page, dto.limit);
   }
 
+  async getStats(organizationId?: string) {
+    this.logger.debug(`Getting chat stats for org=${organizationId || 'all'}`);
+    const filter: Record<string, any> = {};
+    if (organizationId) filter.organizationId = organizationId;
+
+    const [all, aiProcessing, returnedHuman, cold, warm, hot] =
+      await Promise.all([
+        this.chatRepo.count(filter),
+        this.chatRepo.count({ ...filter, status: ChatStatus.AI_PROCESSING }),
+        this.chatRepo.count({ ...filter, status: ChatStatus.RETURNED_HUMAN }),
+        this.chatRepo.count({ ...filter, status: ChatStatus.COLD }),
+        this.chatRepo.count({ ...filter, status: ChatStatus.WARM }),
+        this.chatRepo.count({ ...filter, status: ChatStatus.HOT }),
+      ]);
+
+    return {
+      ALL: all,
+      AI_PROCESSING: aiProcessing,
+      RETURNED_HUMAN: returnedHuman,
+      COLD: cold,
+      WARM: warm,
+      HOT: hot,
+    };
+  }
+
   findOne(id: string) {
     this.logger.debug(`Fetching chat by id: ${id}`);
     return this.chatRepo.findById(id);

@@ -12,6 +12,9 @@ export enum ChatChannel {
 export enum ChatStatus {
   AI_PROCESSING = 'AI_PROCESSING',
   RETURNED_HUMAN = 'RETURNED_HUMAN',
+  COLD = 'COLD',
+  WARM = 'WARM',
+  HOT = 'HOT',
 }
 
 @Schema({ _id: false })

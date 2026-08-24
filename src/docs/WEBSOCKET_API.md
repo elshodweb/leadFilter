@@ -80,7 +80,7 @@ Get paginated list of chats for an organization.
 // Emit payload
 {
   "organizationId": "68030abc...",
-  "status": "AI_PROCESSING",    // optional: "AI_PROCESSING" | "RETURNED_HUMAN"
+  "status": "RETURNED_HUMAN",    // optional: "AI_PROCESSING" | "RETURNED_HUMAN" | "COLD" | "WARM" | "HOT"
   "page": 1,
   "limit": 20
 }
@@ -94,6 +94,28 @@ Get paginated list of chats for an organization.
   "totalPages": 3,
   "hasNextPage": true,
   "hasPrevPage": false
+}
+```
+
+---
+
+### `chat:stats`
+Get counts for all chat status tabs (ALL, AI_PROCESSING, RETURNED_HUMAN, COLD, WARM, HOT).
+
+```json
+// Emit payload
+{
+  "organizationId": "68030abc..." // optional for ADMIN, auto-scoped for operators
+}
+
+// Response (ack)
+{
+  "ALL": 45,
+  "AI_PROCESSING": 20,
+  "RETURNED_HUMAN": 15,
+  "COLD": 3,
+  "WARM": 5,
+  "HOT": 2
 }
 ```
 
@@ -626,9 +648,10 @@ export function ChatSidebar({ organizationId, token }) {
 | GET | `/users/:id` | Bearer + ADMIN | Get user |
 | PATCH | `/users/:id` | Bearer + ADMIN | Update user |
 | DELETE | `/users/:id` | Bearer + ADMIN | Delete user |
-| GET | `/chats` | Bearer | List paginated chats (sorted by latest message `updatedAt: -1`) |
+| GET | `/chats` | Bearer | List paginated chats (`?status=RETURNED_HUMAN`, `COLD`, `WARM`, `HOT`, `AI_PROCESSING`) |
+| GET | `/chats/stats` | Bearer | Get counts for all tabs (`ALL`, `AI_PROCESSING`, `RETURNED_HUMAN`, `COLD`, `WARM`, `HOT`) |
 | GET | `/chats/:id` | Bearer | Get single chat by ID |
-| PATCH | `/chats/:id` | Bearer | Update chat status (`AI_PROCESSING`, `RETURNED_HUMAN`) |
+| PATCH | `/chats/:id` | Bearer | Update chat status (`AI_PROCESSING`, `RETURNED_HUMAN`, `COLD`, `WARM`, `HOT`) |
 | GET | `/chats/:id/messages` | Bearer | Get paginated message history for chat |
 | POST | `/organizations/:orgId/lead-questions` | Bearer + ADMIN | Add lead question (org scoped) |
 | GET | `/organizations/:orgId/lead-questions` | Bearer + ADMIN | List lead questions (org scoped) |

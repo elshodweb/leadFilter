@@ -120,6 +120,20 @@ export class ChatsGateway
     return this.chatsService.findAll(dto);
   }
 
+  /** Get chat stats and counts per status tab */
+  @SubscribeMessage('chat:stats')
+  async handleChatStats(
+    @MessageBody() data: { organizationId?: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const isAdmin = client.user.role === UserRole.ADMIN;
+    const targetOrgId =
+      isAdmin && data?.organizationId
+        ? data.organizationId
+        : client.user.organizationId;
+    return this.chatsService.getStats(targetOrgId);
+  }
+
   /** Get single chat */
   @SubscribeMessage('chat:get')
   async handleChatGet(
