@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsObject, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional } from 'class-validator';
 import { LeadStatus } from '../schemas/lead.schema';
 
 export class UpdateLeadDto {
@@ -8,8 +8,7 @@ export class UpdateLeadDto {
   @IsEnum(LeadStatus)
   status?: LeadStatus;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Lead collected data array or object' })
   @IsOptional()
-  @IsObject()
-  data?: Record<string, any>;
+  data?: any;
 }

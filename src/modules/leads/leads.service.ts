@@ -16,10 +16,10 @@ export class LeadsService {
   async createFromChat(
     organizationId: string,
     chatId: string,
-    data: Record<string, any>,
+    data: any,
   ) {
     this.logger.log(
-      `Creating Lead for Chat ${chatId} (Org: ${organizationId}) with fields: [${Object.keys(data).join(', ')}]`,
+      `Creating Lead for Chat ${chatId} (Org: ${organizationId}) with ${Array.isArray(data) ? data.length : Object.keys(data || {}).length} collected items`,
     );
     return this.repo.create({
       organizationId: organizationId as any,
@@ -56,5 +56,10 @@ export class LeadsService {
     if (!lead) throw new NotFoundException(`Lead ${id} not found`);
     this.eventEmitter.emit('lead.updated', lead);
     return lead;
+  }
+
+  deleteByChatId(chatId: string) {
+    this.logger.log(`Deleting lead for chat ${chatId}`);
+    return this.repo.deleteByChatId(chatId);
   }
 }

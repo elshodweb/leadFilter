@@ -126,4 +126,58 @@ export class InstagramService {
       error: lastError,
     };
   }
+
+  /**
+   * Fetch customer profile (name, username, profile_pic) from Meta Graph API
+   */
+  async getUserProfile(options: {
+    userId: string;
+    accessToken: string;
+    apiVersion?: string;
+    apiBaseUrl?: string;
+  }): Promise<{ name?: string; username?: string; profile_pic?: string } | null> {
+    const {
+      userId,
+      accessToken,
+      apiVersion = 'v23.0',
+      apiBaseUrl = 'https://graph.instagram.com',
+    } = options;
+
+    if (!userId || !accessToken) return null;
+
+    const candidateUrls = [
+      `https://graph.facebook.com/${apiVersion}/${userId}?fields=name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`,
+      `${apiBaseUrl.replace(/\/$/, '')}/${apiVersion}/${userId}?fields=name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`,
+    ];
+
+    for (const url of candidateUrls) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await response.json().catch(() => null);
+        if (
+          response.ok &&
+          data &&
+          (data.username || data.name || data.profile_pic)
+        ) {
+          this.logger.log(
+            `[Instagram Profile] Successfully fetched profile for user ${userId}: username="${data.username || ''}", name="${data.name || ''}"`,
+          );
+          return {
+            name: data.name || data.username || undefined,
+            username: data.username || undefined,
+            profile_pic: data.profile_pic || undefined,
+          };
+        }
+      } catch (err: any) {
+        this.logger.debug(
+          `[Instagram Profile] Could not fetch profile from ${url}: ${err.message}`,
+        );
+      }
+    }
+    return null;
+  }
 }

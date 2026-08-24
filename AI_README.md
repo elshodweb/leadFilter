@@ -113,8 +113,15 @@ Organization
   channel: 'INSTAGRAM' | 'TELEGRAM' | 'WHATSAPP',
   externalChatId: string,         // e.g. Instagram sender ID
   externalUserId: string,
-  status: 'AI_PROCESSING' | 'RETURNED_HUMAN',
-  collectedData: Record<string, any>,  // accumulator for answered LeadQuestions
+  status: 'COLD' | 'WARM' | 'HOT',      // default: 'COLD'
+  ai_enabled: boolean,                 // default: true (AI ON / OFF)
+  collectedData: [                      // Array of collected lead question items
+    {
+      id: string,                       // Lead question ID
+      title: string,                    // Lead question title (e.g. "Mijoz telefon raqami")
+      value: string | null              // Collected value or null if not yet answered
+    }
+  ],
   lastMessage: {
     text: string,
     sentTime: Date

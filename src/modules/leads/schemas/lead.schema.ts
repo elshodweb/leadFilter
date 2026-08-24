@@ -21,8 +21,8 @@ export class Lead {
   @Prop({ enum: LeadStatus, default: LeadStatus.NEW })
   status: LeadStatus;
 
-  @Prop({ type: Object, default: {} })
-  data: Record<string, any>;
+  @Prop({ type: [Object], default: [] })
+  data: any[];
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);

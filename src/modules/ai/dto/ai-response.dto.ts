@@ -1,5 +1,7 @@
+import { CollectedDataItem } from './ai-context.dto';
+
 export interface AiResponseDto {
   reply: string;
-  collectedData: Record<string, any>;
+  collectedData: CollectedDataItem[];
   isComplete: boolean;
 }

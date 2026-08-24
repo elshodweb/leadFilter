@@ -10,12 +10,25 @@ export enum ChatChannel {
 }
 
 export enum ChatStatus {
-  AI_PROCESSING = 'AI_PROCESSING',
-  RETURNED_HUMAN = 'RETURNED_HUMAN',
   COLD = 'COLD',
   WARM = 'WARM',
   HOT = 'HOT',
 }
+
+@Schema({ _id: false })
+export class CollectedDataItem {
+  @Prop({ required: true })
+  id: string;
+
+  @Prop({ required: true })
+  title: string;
+
+  @Prop({ type: String, default: null })
+  value: string | null;
+}
+
+export const CollectedDataItemSchema =
+  SchemaFactory.createForClass(CollectedDataItem);
 
 @Schema({ _id: false })
 class LastMessage {
@@ -37,11 +50,23 @@ export class Chat {
   @Prop({ required: true })
   externalUserId: string;
 
-  @Prop({ enum: ChatStatus, default: ChatStatus.AI_PROCESSING })
+  @Prop({ type: String, default: null })
+  customerName?: string;
+
+  @Prop({ type: String, default: null })
+  customerUsername?: string;
+
+  @Prop({ type: String, default: null })
+  customerAvatar?: string;
+
+  @Prop({ enum: ChatStatus, default: ChatStatus.COLD })
   status: ChatStatus;
 
-  @Prop({ type: Object, default: {} })
-  collectedData: Record<string, any>;
+  @Prop({ type: Boolean, default: true })
+  ai_enabled: boolean;
+
+  @Prop({ type: [CollectedDataItemSchema], default: [] })
+  collectedData: CollectedDataItem[];
 
   @Prop({ type: LastMessage })
   lastMessage: LastMessage;
@@ -50,5 +75,6 @@ export class Chat {
 export const ChatSchema = SchemaFactory.createForClass(Chat);
 ChatSchema.index({ organizationId: 1, externalChatId: 1 }, { unique: true });
 ChatSchema.index({ organizationId: 1, status: 1 });
+ChatSchema.index({ organizationId: 1, ai_enabled: 1 });
 ChatSchema.index({ organizationId: 1, updatedAt: -1 });
 

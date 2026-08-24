@@ -50,4 +50,8 @@ export class LeadRepository {
       .findByIdAndUpdate(id, data, { returnDocument: 'after' })
       .lean() as Promise<LeadDocument | null>;
   }
+
+  async deleteByChatId(chatId: string): Promise<any> {
+    return this.model.deleteMany({ chatId });
+  }
 }

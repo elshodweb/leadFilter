@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Logger,
   Param,
@@ -88,5 +89,17 @@ export class ChatsController {
     const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 50;
     return this.messagesService.getChatHistory(id, +page, +limit);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a chat and all its messages' })
+  @ApiParam({ name: 'id' })
+  delete(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const isAdmin = req.user.role === UserRole.ADMIN;
+    const orgId = isAdmin ? undefined : req.user.organizationId;
+    return this.chatsService.delete(id, orgId);
   }
 }

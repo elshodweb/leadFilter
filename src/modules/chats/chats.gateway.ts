@@ -181,6 +181,30 @@ export class ChatsGateway
     return this.chatsService.update(data.chatId, data.dto);
   }
 
+  /** Delete a chat and all its messages */
+  @SubscribeMessage('chat:delete')
+  async handleChatDelete(
+    @MessageBody() data: { chatId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    this.logger.log(
+      `[WS chat:delete] User: ${client.user.email}, ChatId: ${data.chatId}`,
+    );
+    const chat = await this.chatsService.findOne(data.chatId);
+    if (!chat) {
+      throw new WsException('Chat not found');
+    }
+
+    const isAdmin = client.user.role === UserRole.ADMIN;
+    if (
+      !isAdmin &&
+      chat.organizationId.toString() !== client.user.organizationId
+    ) {
+      throw new WsException('Access denied to chat from another organization');
+    }
+    return this.chatsService.delete(data.chatId, chat.organizationId.toString());
+  }
+
   // ── Event-driven broadcasts ───────────────────────────────────
 
   @OnEvent('chat.new')
@@ -197,5 +221,15 @@ export class ChatsGateway
       `[WS Broadcast chat:updated] Emitting to room "org:${chat.organizationId}" for Chat ${chat._id}`,
     );
     this.server.to(`org:${chat.organizationId}`).emit('chat:updated', chat);
+  }
+
+  @OnEvent('chat.deleted')
+  broadcastChatDeleted(payload: { chatId: string; organizationId: string }) {
+    this.logger.debug(
+      `[WS Broadcast chat:deleted] Emitting to room "org:${payload.organizationId}" for Chat ${payload.chatId}`,
+    );
+    this.server
+      .to(`org:${payload.organizationId}`)
+      .emit('chat:deleted', payload);
   }
 }

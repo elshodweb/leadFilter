@@ -75,4 +75,9 @@ export class MessagesService {
   getLastN(chatId: string, n = 20) {
     return this.repo.findLastN(chatId, n);
   }
+
+  deleteByChatId(chatId: string) {
+    this.logger.log(`Deleting all messages for chat ${chatId}`);
+    return this.repo.deleteByChatId(chatId);
+  }
 }

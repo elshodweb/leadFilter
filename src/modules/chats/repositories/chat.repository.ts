@@ -64,7 +64,7 @@ export class ChatRepository {
 
   async updateCollectedData(
     chatId: string,
-    data: Record<string, any>,
+    data: any[],
   ): Promise<ChatDocument | null> {
     return this.model
       .findByIdAndUpdate(
@@ -96,5 +96,9 @@ export class ChatRepository {
 
   async count(filter: Record<string, any> = {}): Promise<number> {
     return this.model.countDocuments(filter);
+  }
+
+  async delete(id: string): Promise<ChatDocument | null> {
+    return this.model.findByIdAndDelete(id).lean() as Promise<ChatDocument | null>;
   }
 }

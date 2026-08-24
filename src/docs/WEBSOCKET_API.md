@@ -80,7 +80,8 @@ Get paginated list of chats for an organization.
 // Emit payload
 {
   "organizationId": "68030abc...",
-  "status": "RETURNED_HUMAN",    // optional: "AI_PROCESSING" | "RETURNED_HUMAN" | "COLD" | "WARM" | "HOT"
+  "status": "COLD",            // optional: "COLD" | "WARM" | "HOT"
+  "ai_enabled": true,          // optional: true (AI ON) | false (AI OFF / Operator)
   "page": 1,
   "limit": 20
 }
@@ -100,7 +101,7 @@ Get paginated list of chats for an organization.
 ---
 
 ### `chat:stats`
-Get counts for all chat status tabs (ALL, AI_PROCESSING, RETURNED_HUMAN, COLD, WARM, HOT).
+Get counts for all chat status tabs (ALL, COLD, WARM, HOT, AI_ENABLED, AI_DISABLED).
 
 ```json
 // Emit payload
@@ -111,11 +112,11 @@ Get counts for all chat status tabs (ALL, AI_PROCESSING, RETURNED_HUMAN, COLD, W
 // Response (ack)
 {
   "ALL": 45,
-  "AI_PROCESSING": 20,
-  "RETURNED_HUMAN": 15,
-  "COLD": 3,
-  "WARM": 5,
-  "HOT": 2
+  "COLD": 20,
+  "WARM": 15,
+  "HOT": 10,
+  "AI_ENABLED": 30,
+  "AI_DISABLED": 15
 }
 ```
 
@@ -135,19 +136,38 @@ Get a single chat by ID.
 ---
 
 ### `chat:update`
-Update a chat (e.g., return to human agent).
+Update a chat status or toggle AI.
 
 ```json
 // Emit payload
 {
   "chatId": "68030def...",
   "dto": {
-    "status": "RETURNED_HUMAN"
+    "status": "WARM",      // "COLD" | "WARM" | "HOT"
+    "ai_enabled": false    // true (AI ON) | false (AI OFF / Human)
   }
 }
 
 // Response (ack)
 { /* Updated Chat object */ }
+```
+
+---
+
+### `chat:delete`
+Delete a chat and all its associated messages and leads.
+
+```json
+// Emit payload
+{
+  "chatId": "68030def..."
+}
+
+// Response (ack)
+{
+  "success": true,
+  "message": "Chat 68030def... and all related messages and leads deleted."
+}
 ```
 
 ---
@@ -297,8 +317,20 @@ Fired when a new chat is created (first message from a new customer).
   "channel": "INSTAGRAM",
   "externalChatId": "instagram_user_123",
   "externalUserId": "instagram_user_123",
-  "status": "AI_PROCESSING",
-  "collectedData": {},
+  "status": "COLD",
+  "ai_enabled": true,
+  "collectedData": [
+    {
+      "id": "6a8459affff7e995293db7d1",
+      "title": "Mijoz telefon raqami",
+      "value": null
+    },
+    {
+      "id": "6a8459affff7e995293db7d2",
+      "title": "Sayohat manzili",
+      "value": null
+    }
+  ],
   "lastMessage": { "text": "Salom", "sentTime": "2026-08-18T10:10:00.000Z" },
   "createdAt": "2026-08-18T10:00:00.000Z",
   "updatedAt": "2026-08-18T10:10:00.000Z"
@@ -308,7 +340,7 @@ Fired when a new chat is created (first message from a new customer).
 ---
 
 ### `chat:updated`
-Fired when a chat receives a new message (incoming customer, AI reply, or human message), changes status, or collects new data.
+Fired when a chat receives a new message (incoming customer, AI reply, or human message), changes status, toggles `ai_enabled`, or collects new data.
 
 - **Room**: `org:{organizationId}`
 - **Usage**: Use this event to automatically move the updated chat to the top of your chat list (`index 0`) in real time, as `updatedAt` and `lastMessage` are updated.
@@ -320,14 +352,41 @@ Fired when a chat receives a new message (incoming customer, AI reply, or human 
   "channel": "INSTAGRAM",
   "externalChatId": "instagram_user_123",
   "externalUserId": "instagram_user_123",
-  "status": "AI_PROCESSING",
-  "collectedData": { "destination": "Turkiya" },
+  "status": "WARM",
+  "ai_enabled": true,
+  "collectedData": [
+    {
+      "id": "6a8459affff7e995293db7d1",
+      "title": "Mijoz telefon raqami",
+      "value": "+998993002399"
+    },
+    {
+      "id": "6a8459affff7e995293db7d2",
+      "title": "Sayohat manzili",
+      "value": "Dubay"
+    }
+  ],
   "lastMessage": {
-    "text": "Turkiyaga turlar 1200$ dan boshlanadi. Qaysi sana uchun qiziqasiz?",
+    "text": "Dubayga turlar 800$ dan boshlanadi. Qaysi sanaga rejalashtiryapsiz?",
     "sentTime": "2026-08-18T10:10:02.000Z"
   },
   "createdAt": "2026-08-18T10:00:00.000Z",
   "updatedAt": "2026-08-18T10:10:02.000Z"
+}
+```
+
+---
+
+### `chat:deleted`
+Fired when a chat is deleted by an admin or operator.
+
+- **Room**: `org:{organizationId}`
+- **Usage**: Remove the deleted chat from the frontend chat list.
+
+```json
+{
+  "chatId": "68030def...",
+  "organizationId": "68030abc..."
 }
 ```
 
@@ -387,13 +446,23 @@ Fired when a new lead is automatically generated upon completing all AI question
   "organizationId": "68030abc...",
   "chatId": "68030def...",
   "status": "NEW",
-  "data": {
-    "fullName": "Ali Valiyev",
-    "phone": "+998901234567",
-    "destination": "Turkiya",
-    "travelDate": "2026-09-15",
-    "budget": 1200
-  },
+  "data": [
+    {
+      "id": "6a8459affff7e995293db7d1",
+      "title": "Mijoz telefon raqami",
+      "value": "+998901234567"
+    },
+    {
+      "id": "6a8459affff7e995293db7d2",
+      "title": "Mijozning to'liq ismi",
+      "value": "Ali Valiyev"
+    },
+    {
+      "id": "6a8459affff7e995293db7d3",
+      "title": "Sayohat manzili",
+      "value": "Turkiya"
+    }
+  ],
   "createdAt": "2026-08-18T10:15:00.000Z",
   "updatedAt": "2026-08-18T10:15:00.000Z"
 }
@@ -412,11 +481,18 @@ Fired when a lead status or collected data is updated (via REST `PATCH /leads/:i
   "organizationId": "68030abc...",
   "chatId": "68030def...",
   "status": "IN_PROGRESS",
-  "data": {
-    "fullName": "Ali Valiyev",
-    "phone": "+998901234567",
-    "destination": "Turkiya"
-  },
+  "data": [
+    {
+      "id": "6a8459affff7e995293db7d1",
+      "title": "Mijoz telefon raqami",
+      "value": "+998901234567"
+    },
+    {
+      "id": "6a8459affff7e995293db7d2",
+      "title": "Mijozning to'liq ismi",
+      "value": "Ali Valiyev"
+    }
+  ],
   "createdAt": "2026-08-18T10:15:00.000Z",
   "updatedAt": "2026-08-18T10:20:00.000Z"
 }
@@ -648,10 +724,11 @@ export function ChatSidebar({ organizationId, token }) {
 | GET | `/users/:id` | Bearer + ADMIN | Get user |
 | PATCH | `/users/:id` | Bearer + ADMIN | Update user |
 | DELETE | `/users/:id` | Bearer + ADMIN | Delete user |
-| GET | `/chats` | Bearer | List paginated chats (`?status=RETURNED_HUMAN`, `COLD`, `WARM`, `HOT`, `AI_PROCESSING`) |
-| GET | `/chats/stats` | Bearer | Get counts for all tabs (`ALL`, `AI_PROCESSING`, `RETURNED_HUMAN`, `COLD`, `WARM`, `HOT`) |
+| GET | `/chats` | Bearer | List paginated chats (`?status=COLD/WARM/HOT`, `?ai_enabled=true/false`) |
+| GET | `/chats/stats` | Bearer | Get counts for all tabs (`ALL`, `COLD`, `WARM`, `HOT`, `AI_ENABLED`, `AI_DISABLED`) |
 | GET | `/chats/:id` | Bearer | Get single chat by ID |
-| PATCH | `/chats/:id` | Bearer | Update chat status (`AI_PROCESSING`, `RETURNED_HUMAN`, `COLD`, `WARM`, `HOT`) |
+| PATCH | `/chats/:id` | Bearer | Update chat status (`status: COLD/WARM/HOT`, `ai_enabled: true/false`) |
+| DELETE | `/chats/:id` | Bearer | Delete chat and all its messages |
 | GET | `/chats/:id/messages` | Bearer | Get paginated message history for chat |
 | POST | `/organizations/:orgId/lead-questions` | Bearer + ADMIN | Add lead question (org scoped) |
 | GET | `/organizations/:orgId/lead-questions` | Bearer + ADMIN | List lead questions (org scoped) |

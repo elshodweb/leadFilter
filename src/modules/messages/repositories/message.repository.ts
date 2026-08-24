@@ -47,4 +47,8 @@ export class MessageRepository {
       .limit(n)
       .lean() as Promise<MessageDocument[]>;
   }
+
+  async deleteByChatId(chatId: string): Promise<any> {
+    return this.model.deleteMany({ chatId });
+  }
 }

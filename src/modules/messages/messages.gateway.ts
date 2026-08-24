@@ -65,8 +65,7 @@ export class MessagesGateway {
       content: dto.content,
       message: msg,
     });
-    this.server.to(`chat:${dto.chatId}`).emit('message:new', msg);
-    this.server.to(`org:${orgId}`).emit('message:new', msg);
+    this.eventEmitter.emit('message.new', msg);
     return msg;
   }
 
@@ -75,22 +74,24 @@ export class MessagesGateway {
   @OnEvent('message.new')
   broadcastNewMessage(message: any) {
     const chatId = message.chatId?.toString();
+    const orgId = message.organizationId?.toString();
     this.logger.debug(
-      `[WS Broadcast message:new] Emitting to room "chat:${chatId}" and "org:${message.organizationId}"`,
+      `[WS Broadcast message:new] Emitting to room "chat:${chatId}" and "org:${orgId}"`,
     );
-    this.server.to(`chat:${chatId}`).emit('message:new', message);
     this.server
-      .to(`org:${message.organizationId}`)
+      .to([`chat:${chatId}`, `org:${orgId}`])
       .emit('message:new', message);
   }
 
   @OnEvent('message.ai')
   broadcastAiMessage(message: any) {
     const chatId = message.chatId?.toString();
+    const orgId = message.organizationId?.toString();
     this.logger.debug(
-      `[WS Broadcast message:ai] Emitting AI reply to room "chat:${chatId}" and "org:${message.organizationId}"`,
+      `[WS Broadcast message:ai] Emitting AI reply to room "chat:${chatId}" and "org:${orgId}"`,
     );
-    this.server.to(`chat:${chatId}`).emit('message:ai', message);
-    this.server.to(`org:${message.organizationId}`).emit('message:ai', message);
+    this.server
+      .to([`chat:${chatId}`, `org:${orgId}`])
+      .emit('message:ai', message);
   }
 }

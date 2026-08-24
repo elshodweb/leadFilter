@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { LeadDocument } from '../leads/schemas/lead.schema';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ChatRepository } from './repositories/chat.repository';
@@ -29,11 +29,12 @@ export class ChatsService {
 
   async findAll(dto: ListChatsDto) {
     this.logger.debug(
-      `Listing chats with filter: org=${dto.organizationId || 'all'}, status=${dto.status || 'all'}, page=${dto.page || 1}`,
+      `Listing chats with filter: org=${dto.organizationId || 'all'}, status=${dto.status || 'all'}, ai_enabled=${dto.ai_enabled ?? 'all'}, page=${dto.page || 1}`,
     );
     const filter: Record<string, any> = {};
     if (dto.organizationId) filter.organizationId = dto.organizationId;
     if (dto.status) filter.status = dto.status;
+    if (dto.ai_enabled !== undefined) filter.ai_enabled = dto.ai_enabled;
     return this.chatRepo.findAll(filter, dto.page, dto.limit);
   }
 
@@ -42,23 +43,23 @@ export class ChatsService {
     const filter: Record<string, any> = {};
     if (organizationId) filter.organizationId = organizationId;
 
-    const [all, aiProcessing, returnedHuman, cold, warm, hot] =
+    const [all, cold, warm, hot, aiEnabled, aiDisabled] =
       await Promise.all([
         this.chatRepo.count(filter),
-        this.chatRepo.count({ ...filter, status: ChatStatus.AI_PROCESSING }),
-        this.chatRepo.count({ ...filter, status: ChatStatus.RETURNED_HUMAN }),
         this.chatRepo.count({ ...filter, status: ChatStatus.COLD }),
         this.chatRepo.count({ ...filter, status: ChatStatus.WARM }),
         this.chatRepo.count({ ...filter, status: ChatStatus.HOT }),
+        this.chatRepo.count({ ...filter, ai_enabled: true }),
+        this.chatRepo.count({ ...filter, ai_enabled: false }),
       ]);
 
     return {
       ALL: all,
-      AI_PROCESSING: aiProcessing,
-      RETURNED_HUMAN: returnedHuman,
       COLD: cold,
       WARM: warm,
       HOT: hot,
+      AI_ENABLED: aiEnabled,
+      AI_DISABLED: aiDisabled,
     };
   }
 
@@ -73,12 +74,51 @@ export class ChatsService {
     if (chat) {
       this.logger.debug(`Emitting chat.updated for chat ${id}`);
       this.eventEmitter.emit('chat.updated', chat);
+
+      // If AI is turned ON (ai_enabled === true), check if customer is waiting for a response
+      if (dto.ai_enabled === true) {
+        this.triggerAiForChat(id, chat.organizationId.toString()).catch(
+          (err) => {
+            this.logger.error(
+              `[triggerAiForChat] Error for chat ${id}: ${err.message}`,
+            );
+          },
+        );
+      }
     }
     return chat;
   }
 
+  async delete(id: string, organizationId?: string) {
+    this.logger.log(`Deleting chat ${id} (org: ${organizationId || 'any'})`);
+    const chat = await this.chatRepo.findById(id);
+    if (!chat) throw new NotFoundException(`Chat ${id} not found`);
+
+    if (organizationId && chat.organizationId.toString() !== organizationId) {
+      throw new NotFoundException(`Chat ${id} not found in this organization`);
+    }
+
+    await Promise.all([
+      this.chatRepo.delete(id),
+      this.messagesService.deleteByChatId(id),
+      this.leadsService.deleteByChatId(id),
+    ]);
+
+    this.eventEmitter.emit('chat.deleted', {
+      chatId: id,
+      organizationId: chat.organizationId.toString(),
+    });
+
+    return {
+      success: true,
+      message: `Chat ${id} and all related messages and leads deleted.`,
+    };
+  }
+
   async updateLastMessage(chatId: string, text: string, sentTime = new Date()) {
-    this.logger.debug(`Updating last message for chat ${chatId}: "${text.substring(0, 30)}..."`);
+    this.logger.debug(
+      `Updating last message for chat ${chatId}: "${text.substring(0, 30)}..."`,
+    );
     const chat = await this.chatRepo.updateLastMessage(chatId, text, sentTime);
     if (chat) this.eventEmitter.emit('chat.updated', chat);
     return chat;
@@ -90,8 +130,13 @@ export class ChatsService {
     content: string;
     organizationId: string;
   }) {
-    this.logger.log(`[Event message.human] Agent sent message to chat ${payload.chatId}`);
+    this.logger.log(
+      `[Event message.human] Agent sent message to chat ${payload.chatId}`,
+    );
     await this.updateLastMessage(payload.chatId, payload.content);
+
+    // Auto turn off AI for this chat when human agent replies
+    await this.chatRepo.update(payload.chatId, { ai_enabled: false });
 
     const chat = await this.chatRepo.findById(payload.chatId);
     if (chat && chat.channel === ChatChannel.INSTAGRAM) {
@@ -145,7 +190,12 @@ export class ChatsService {
     const { doc: chat, created } = await this.chatRepo.findOrCreate(
       organizationId,
       externalChatId,
-      { channel, externalUserId: externalChatId, status: ChatStatus.RETURNED_HUMAN },
+      {
+        channel,
+        externalUserId: externalChatId,
+        status: ChatStatus.COLD,
+        ai_enabled: false,
+      },
     );
 
     if (created) {
@@ -153,15 +203,18 @@ export class ChatsService {
       this.eventEmitter.emit('chat.new', chat);
     }
 
-    // 2. Set chat status to RETURNED_HUMAN so AI stops automatically replying
-    if (chat.status !== ChatStatus.RETURNED_HUMAN) {
+    // 2. Enrich Instagram customer profile if missing
+    this.enrichInstagramProfile(organizationId, chat);
+
+    // 3. Set ai_enabled to false so AI stops automatically replying
+    if (chat.ai_enabled !== false) {
       await this.chatRepo.update(chat._id.toString(), {
-        status: ChatStatus.RETURNED_HUMAN,
+        ai_enabled: false,
       });
-      chat.status = ChatStatus.RETURNED_HUMAN;
+      chat.ai_enabled = false;
     }
 
-    // 3. Save as HUMAN message
+    // 4. Save as HUMAN message
     const humanMsg = await this.messagesService.saveHumanMessage(
       organizationId,
       chat._id.toString(),
@@ -170,7 +223,7 @@ export class ChatsService {
     this.logger.debug(`[Echo Pipeline] Operator message saved: ${humanMsg._id}`);
     this.eventEmitter.emit('message.new', humanMsg);
 
-    // 4. Update last message & broadcast chat update to web platform
+    // 5. Update last message & broadcast chat update to web platform
     const updatedChat = await this.chatRepo.updateLastMessage(
       chat._id.toString(),
       content,
@@ -211,15 +264,20 @@ export class ChatsService {
     const { doc: chat, created } = await this.chatRepo.findOrCreate(
       organizationId,
       externalChatId,
-      { channel, externalUserId, status: ChatStatus.AI_PROCESSING },
+      { channel, externalUserId, status: ChatStatus.COLD, ai_enabled: true },
     );
 
     if (created) {
       this.logger.log(`[Pipeline] New Chat created: ${chat._id}`);
       this.eventEmitter.emit('chat.new', chat);
     } else {
-      this.logger.debug(`[Pipeline] Existing Chat matched: ${chat._id} (status: ${chat.status})`);
+      this.logger.debug(
+        `[Pipeline] Existing Chat matched: ${chat._id} (status: ${chat.status}, ai_enabled: ${chat.ai_enabled})`,
+      );
     }
+
+    // 1.1 Enrich Instagram customer profile if missing
+    this.enrichInstagramProfile(organizationId, chat);
 
     // 2. Save incoming message
     const incomingMsg = await this.messagesService.saveIncoming(
@@ -241,9 +299,11 @@ export class ChatsService {
       this.eventEmitter.emit('chat.updated', updatedAfterIncoming);
     }
 
-    // 4. If returned to human, skip AI
-    if (chat.status === ChatStatus.RETURNED_HUMAN) {
-      this.logger.log(`[Pipeline] Chat ${chat._id} is RETURNED_HUMAN — skipping AI response`);
+    // 4. If AI is disabled (ai_enabled === false), skip AI
+    if (chat.ai_enabled === false) {
+      this.logger.log(
+        `[Pipeline] Chat ${chat._id} has ai_enabled: false — skipping AI response`,
+      );
       return {
         chat: updatedAfterIncoming || chat,
         message: incomingMsg,
@@ -271,7 +331,9 @@ export class ChatsService {
           : ('assistant' as const),
       content: m.content,
     }));
-    this.logger.debug(`[Pipeline] Loaded ${chatHistory.length} chat history items`);
+    this.logger.debug(
+      `[Pipeline] Loaded ${chatHistory.length} chat history items`,
+    );
 
     // 7. Call AI
     this.logger.log(`[Pipeline] Invoking AI for chat ${chat._id}...`);
@@ -287,12 +349,13 @@ export class ChatsService {
         description: a.description,
       })),
       leadQuestions: leadQuestions.map((q) => ({
+        id: q._id.toString(),
         title: q.title,
         description: q.description,
         order: q.order,
       })),
       chatHistory,
-      collectedData: chat.collectedData || {},
+      collectedData: chat.collectedData || [],
       incomingMessage: content,
     });
 
@@ -303,7 +366,7 @@ export class ChatsService {
       aiResponse.reply,
     );
     this.logger.debug(`[Pipeline] AI message saved: ${aiMsg._id}`);
-    this.eventEmitter.emit('message.ai', aiMsg);
+    this.eventEmitter.emit('message.new', aiMsg);
 
     // 8.1 Deliver AI message to customer on Instagram
     if (chat.channel === ChatChannel.INSTAGRAM) {
@@ -363,12 +426,173 @@ export class ChatsService {
           aiResponse.collectedData,
         );
         this.eventEmitter.emit('lead.new', lead);
-        this.logger.log(`[Pipeline] 🎉 New Lead created: ${lead._id} for chat ${chat._id}`);
+        this.logger.log(
+          `[Pipeline] 🎉 New Lead created: ${lead._id} for chat ${chat._id}`,
+        );
       } else {
-        this.logger.debug(`[Pipeline] Lead already exists for chat ${chat._id} (${existingLead._id})`);
+        this.logger.debug(
+          `[Pipeline] Lead already exists for chat ${chat._id} (${existingLead._id})`,
+        );
       }
     }
 
     return { chat: updatedChat, message: incomingMsg, aiReply: aiMsg, lead };
+  }
+
+  /**
+   * Triggers AI response for a chat when AI is turned back ON (ai_enabled: true)
+   * if the latest message is an unanswered customer message.
+   */
+  async triggerAiForChat(chatId: string, organizationId: string) {
+    const chat = await this.chatRepo.findById(chatId);
+    if (!chat || chat.ai_enabled === false) return;
+
+    const lastMessages = await this.messagesService.getLastN(chatId, 1);
+    const lastMsg = lastMessages[0];
+    if (!lastMsg || lastMsg.senderType !== 'CUSTOMER') {
+      this.logger.debug(
+        `[triggerAiForChat] Chat ${chatId} latest message is not from customer. No need to auto-reply.`,
+      );
+      return;
+    }
+
+    this.logger.log(
+      `[triggerAiForChat] Chat ${chatId} re-enabled AI. Generating automated response to customer's unanswered question: "${lastMsg.content.substring(0, 35)}..."`,
+    );
+
+    // 1. Load context & history
+    const { leadQuestions, companyInfo, additionalInfo } =
+      await this.knowledgeService.loadAiContext(organizationId);
+
+    const recentMessages = await this.messagesService.getLastN(chatId, 20);
+    const chatHistory = recentMessages.reverse().map((m) => ({
+      role:
+        m.senderType === 'CUSTOMER'
+          ? ('user' as const)
+          : ('assistant' as const),
+      content: m.content,
+    }));
+
+    // 2. Call AI
+    const aiResponse = await this.aiService.processMessage({
+      organizationId,
+      chatId,
+      companyInfo: companyInfo.map((c) => ({
+        title: c.title,
+        description: c.description,
+      })),
+      additionalInfo: additionalInfo.map((a) => ({
+        title: a.title,
+        description: a.description,
+      })),
+      leadQuestions: leadQuestions.map((q) => ({
+        id: q._id.toString(),
+        title: q.title,
+        description: q.description,
+        order: q.order,
+      })),
+      chatHistory: chatHistory.slice(0, -1),
+      collectedData: chat.collectedData || [],
+      incomingMessage: lastMsg.content,
+    });
+
+    // 3. Save AI reply
+    const aiMsg = await this.messagesService.saveAiReply(
+      organizationId,
+      chatId,
+      aiResponse.reply,
+    );
+    this.eventEmitter.emit('message.new', aiMsg);
+
+    // 4. Deliver to Instagram
+    if (chat.channel === ChatChannel.INSTAGRAM) {
+      const org = await this.orgsService.findOne(organizationId);
+      if (org?.instagramAccessToken) {
+        this.instagramService
+          .sendTextMessage({
+            accessToken: org.instagramAccessToken,
+            businessAccountId: org.instagramBusinessAccountId,
+            apiBaseUrl: org.instagramApiBaseUrl,
+            apiVersion: org.metaGraphApiVersion,
+            recipientId: chat.externalChatId,
+            text: aiResponse.reply,
+          })
+          .catch((err) => {
+            this.logger.error(
+              `[triggerAiForChat] Failed to send AI response to Instagram: ${err.message}`,
+            );
+          });
+      }
+    }
+
+    // 5. Update lastMessage and collectedData
+    await this.chatRepo.updateLastMessage(
+      chatId,
+      aiResponse.reply,
+      new Date(),
+    );
+    const updatedChat = await this.chatRepo.updateCollectedData(
+      chatId,
+      aiResponse.collectedData,
+    );
+    if (updatedChat) {
+      this.eventEmitter.emit('chat.updated', updatedChat);
+    }
+
+    // 6. Create Lead if complete
+    if (aiResponse.isComplete) {
+      const existingLead = await this.leadsService.findByChatId(chatId);
+      if (!existingLead) {
+        const lead = await this.leadsService.createFromChat(
+          organizationId,
+          chatId,
+          aiResponse.collectedData,
+        );
+        this.eventEmitter.emit('lead.new', lead);
+      }
+    }
+  }
+
+  /**
+   * Helper to enrich chat with Instagram user name, username, and profile_pic
+   */
+  private enrichInstagramProfile(organizationId: string, chat: any) {
+    if (
+      chat.channel === ChatChannel.INSTAGRAM &&
+      (!chat.customerUsername || !chat.customerName || !chat.customerAvatar)
+    ) {
+      this.orgsService
+        .findOne(organizationId)
+        .then((org) => {
+          if (org?.instagramAccessToken) {
+            this.instagramService
+              .getUserProfile({
+                userId: chat.externalChatId,
+                accessToken: org.instagramAccessToken,
+                apiVersion: org.metaGraphApiVersion,
+                apiBaseUrl: org.instagramApiBaseUrl,
+              })
+              .then((profile) => {
+                if (
+                  profile &&
+                  (profile.username || profile.name || profile.profile_pic)
+                ) {
+                  this.chatRepo
+                    .update(chat._id.toString(), {
+                      customerName: profile.name,
+                      customerUsername: profile.username,
+                      customerAvatar: profile.profile_pic,
+                    })
+                    .then((up) => {
+                      if (up) this.eventEmitter.emit('chat.updated', up);
+                    })
+                    .catch(() => {});
+                }
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
   }
 }

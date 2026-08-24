@@ -48,18 +48,52 @@ export class AiService {
         ? ` | Tokens: prompt=${completion.usage.prompt_tokens}, completion=${completion.usage.completion_tokens}, total=${completion.usage.total_tokens}`
         : '';
 
+      // Normalize and merge collectedData so all lead questions are cleanly represented
+      const mergedCollectedData = ctx.leadQuestions
+        .sort((a, b) => a.order - b.order)
+        .map((q) => {
+          const foundInAi = Array.isArray(parsed.collectedData)
+            ? parsed.collectedData.find(
+                (c: any) =>
+                  (c.id && String(c.id) === String(q.id)) ||
+                  (c.title && c.title.toLowerCase() === q.title.toLowerCase()),
+              )
+            : null;
+          const foundInPrev = Array.isArray(ctx.collectedData)
+            ? ctx.collectedData.find(
+                (c: any) =>
+                  (c.id && String(c.id) === String(q.id)) ||
+                  (c.title && c.title.toLowerCase() === q.title.toLowerCase()),
+              )
+            : null;
+
+          const val = foundInAi?.value ?? foundInPrev?.value ?? null;
+          return {
+            id: q.id,
+            title: q.title,
+            value:
+              val !== null && val !== undefined && val !== ''
+                ? String(val)
+                : null,
+          };
+        });
+
+      const isComplete =
+        mergedCollectedData.length > 0 &&
+        mergedCollectedData.every((item) => item.value !== null);
+
       this.logger.log(
-        `[AI Response] Chat: ${ctx.chatId} | +${duration}ms${usage} | isComplete: ${parsed.isComplete ?? false}`,
+        `[AI Response] Chat: ${ctx.chatId} | +${duration}ms${usage} | isComplete: ${isComplete}`,
       );
       this.logger.debug(`[AI Reply Generated] "${parsed.reply}"`);
       this.logger.debug(
-        `[AI Collected Data State] ${JSON.stringify(parsed.collectedData || ctx.collectedData)}`,
+        `[AI Collected Data State] ${JSON.stringify(mergedCollectedData)}`,
       );
 
       return {
         reply: parsed.reply || '',
-        collectedData: parsed.collectedData || ctx.collectedData,
-        isComplete: parsed.isComplete ?? false,
+        collectedData: mergedCollectedData,
+        isComplete,
       };
     } catch (error: any) {
       const duration = Date.now() - startTime;
@@ -82,7 +116,10 @@ export class AiService {
 
     const leadQuestionsBlock = ctx.leadQuestions
       .sort((a, b) => a.order - b.order)
-      .map((q) => `- Key: "${q.title}" | Instruction: ${q.description}`)
+      .map(
+        (q) =>
+          `- ID: "${q.id}" | Title: "${q.title}" | Instruction: ${q.description}`,
+      )
       .join('\n');
 
     const collectedDataBlock = JSON.stringify(ctx.collectedData, null, 2);
@@ -104,18 +141,24 @@ ${collectedDataBlock}
 
 == INSTRUCTIONS ==
 1. Answer customer questions using Company Information and Additional Information.
-2. Naturally guide the conversation to collect missing lead fields. Do NOT ask for data already collected.
+2. Naturally guide the conversation to collect missing lead fields (where "value" is null). Do NOT ask again for data already collected.
 3. Collect one piece of information at a time — do not bombard the customer with multiple questions.
-4. When ALL lead fields have non-null values, set isComplete to true.
+4. When ALL lead fields have non-null string values, set isComplete to true.
 5. Always respond in the SAME LANGUAGE the customer is using.
 6. Return ONLY valid JSON in this exact format:
 {
   "reply": "<your reply to the customer>",
-  "collectedData": { "<fieldKey>": "<value or null>" },
+  "collectedData": [
+    {
+      "id": "<lead question id>",
+      "title": "<lead question title>",
+      "value": "<extracted string value or null>"
+    }
+  ],
   "isComplete": <true|false>
 }
-- "collectedData" must include ALL lead keys (previously collected + newly collected).
-- Set a field to null if not yet collected.
-- "isComplete" is true ONLY when every field has a non-null value.`;
+- "collectedData" must be an array containing an item for EVERY question listed in "LEAD DATA TO COLLECT" (with the exact matching "id" and "title").
+- If a value was already collected previously, preserve it. If the customer provided it in this message, set "value". If not yet provided, set "value" to null.
+- "isComplete" is true ONLY when every item in "collectedData" has a valid non-null string value.`;
   }
 }
