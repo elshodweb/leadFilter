@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import type { LeadDocument } from '../leads/schemas/lead.schema';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ChatRepository } from './repositories/chat.repository';
@@ -13,7 +18,7 @@ import { ListChatsDto } from './dto/list-chats.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 
 @Injectable()
-export class ChatsService {
+export class ChatsService implements OnModuleInit {
   private readonly logger = new Logger(ChatsService.name);
 
   constructor(
@@ -26,6 +31,65 @@ export class ChatsService {
     private readonly instagramService: InstagramService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  async onModuleInit() {
+    this.migrateOldChats().catch((err) => {
+      this.logger.warn(`Migration of old chats failed: ${err.message}`);
+    });
+  }
+
+  private async migrateOldChats() {
+    const rawChats = await this.chatRepo.findRawAll();
+    let migratedCount = 0;
+    for (const chat of rawChats) {
+      let needsUpdate = false;
+      const updateData: Record<string, any> = {};
+
+      if (chat.status === 'AI_PROCESSING' || chat.status === 'RETURNED_HUMAN') {
+        updateData.status = ChatStatus.COLD;
+        if (chat.status === 'RETURNED_HUMAN') {
+          updateData.ai_enabled = false;
+        }
+        needsUpdate = true;
+      }
+
+      if (
+        chat.collectedData &&
+        !Array.isArray(chat.collectedData) &&
+        typeof chat.collectedData === 'object'
+      ) {
+        const leadQuestions = await this.knowledgeService
+          .loadAiContext(chat.organizationId?.toString())
+          .then((ctx) => ctx.leadQuestions)
+          .catch(() => []);
+
+        updateData.collectedData = Object.entries(chat.collectedData).map(
+          ([title, val]) => {
+            const matchedQ = leadQuestions.find(
+              (q) =>
+                q.title.trim().toLowerCase() === title.trim().toLowerCase(),
+            );
+            return {
+              id: matchedQ ? matchedQ._id.toString() : '',
+              title,
+              value: val !== null && val !== undefined ? String(val) : null,
+            };
+          },
+        );
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        await this.chatRepo.updateRaw(chat._id.toString(), updateData);
+        migratedCount++;
+      }
+    }
+    if (migratedCount > 0) {
+      this.logger.log(
+        `[Migration] Successfully migrated ${migratedCount} old chats in database to new schema.`,
+      );
+    }
+  }
 
   async findAll(dto: ListChatsDto) {
     this.logger.debug(
@@ -186,6 +250,19 @@ export class ChatsService {
       `[Echo Message Pipeline] Org: ${organizationId} | ExternalChat: ${externalChatId} | Operator sent text via Instagram App: "${content.substring(0, 35)}..."`,
     );
 
+    // 1. Load lead questions to initialize collectedData for new chats
+    const { leadQuestions: echoQuestions } = await this.knowledgeService
+      .loadAiContext(organizationId)
+      .catch(() => ({ leadQuestions: [] }));
+
+    const initialEchoCollectedData = (echoQuestions || [])
+      .sort((a, b) => a.order - b.order)
+      .map((q) => ({
+        id: q._id.toString(),
+        title: q.title,
+        value: null,
+      }));
+
     // 1. Find or create chat
     const { doc: chat, created } = await this.chatRepo.findOrCreate(
       organizationId,
@@ -195,6 +272,7 @@ export class ChatsService {
         externalUserId: externalChatId,
         status: ChatStatus.COLD,
         ai_enabled: false,
+        collectedData: initialEchoCollectedData,
       },
     );
 
@@ -260,11 +338,29 @@ export class ChatsService {
       `[Incoming Message Pipeline] Org: ${organizationId} | Channel: ${channel} | ExternalChat: ${externalChatId} | User: ${externalUserId}`,
     );
 
+    // 1. Load lead questions to initialize collectedData for new chats
+    const { leadQuestions, companyInfo, additionalInfo } =
+      await this.knowledgeService.loadAiContext(organizationId);
+
+    const initialCollectedData = (leadQuestions || [])
+      .sort((a, b) => a.order - b.order)
+      .map((q) => ({
+        id: q._id.toString(),
+        title: q.title,
+        value: null,
+      }));
+
     // 1. Find or create chat
     const { doc: chat, created } = await this.chatRepo.findOrCreate(
       organizationId,
       externalChatId,
-      { channel, externalUserId, status: ChatStatus.COLD, ai_enabled: true },
+      {
+        channel,
+        externalUserId,
+        status: ChatStatus.COLD,
+        ai_enabled: true,
+        collectedData: initialCollectedData,
+      },
     );
 
     if (created) {
@@ -312,9 +408,7 @@ export class ChatsService {
       };
     }
 
-    // 5. Load org knowledge context
-    const { leadQuestions, companyInfo, additionalInfo } =
-      await this.knowledgeService.loadAiContext(organizationId);
+    // 5. Context is already loaded in Step 1
     this.logger.debug(
       `[Pipeline] Loaded AI context: ${leadQuestions.length} questions, ${companyInfo.length} company info, ${additionalInfo.length} additional info`,
     );
