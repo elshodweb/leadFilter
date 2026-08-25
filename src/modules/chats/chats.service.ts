@@ -83,6 +83,14 @@ export class ChatsService implements OnModuleInit {
         await this.chatRepo.updateRaw(chat._id.toString(), updateData);
         migratedCount++;
       }
+
+      // Enrich Instagram profile if missing
+      if (
+        chat.channel === ChatChannel.INSTAGRAM &&
+        (!chat.customerUsername || !chat.customerName)
+      ) {
+        this.enrichInstagramProfile(chat.organizationId.toString(), chat);
+      }
     }
     if (migratedCount > 0) {
       this.logger.log(
