@@ -46,13 +46,33 @@ export class LeadsGateway {
     return this.leadsService.findAll(dto);
   }
 
+  private async resolveLead(data: any): Promise<any | null> {
+    if (!data) return null;
+    if (typeof data === 'string') {
+      return this.leadsService.findOne(data).catch(() => null);
+    }
+    const targetLeadId = data.leadId || data.id || data._id;
+    if (targetLeadId) {
+      const lead = await this.leadsService
+        .findOne(targetLeadId)
+        .catch(() => null);
+      if (lead) return lead;
+    }
+    if (data.chatId) {
+      return this.leadsService.findByChatId(data.chatId).catch(() => null);
+    }
+    return null;
+  }
+
   @SubscribeMessage('lead:get')
   async handleLeadGet(
-    @MessageBody() data: { leadId: string },
+    @MessageBody() data: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    this.logger.debug(`[WS lead:get] User ${client.user.email}, LeadId: ${data.leadId}`);
-    const lead = await this.leadsService.findOne(data.leadId);
+    this.logger.debug(
+      `[WS lead:get] User ${client.user.email}, Payload: ${JSON.stringify(data)}`,
+    );
+    const lead = await this.resolveLead(data);
     if (!lead) {
       throw new WsException('Lead not found');
     }
@@ -70,13 +90,13 @@ export class LeadsGateway {
   @SubscribeMessage('lead:update')
   @UsePipes(WsValidationPipe)
   async handleLeadUpdate(
-    @MessageBody() data: { leadId: string; dto: UpdateLeadDto },
+    @MessageBody() data: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     this.logger.log(
-      `[WS lead:update] User ${client.user.email} -> Lead ${data.leadId}, DTO: ${JSON.stringify(data.dto)}`,
+      `[WS lead:update] User ${client.user.email} -> Payload: ${JSON.stringify(data)}`,
     );
-    const lead = await this.leadsService.findOne(data.leadId);
+    const lead = await this.resolveLead(data);
     if (!lead) {
       throw new WsException('Lead not found');
     }
@@ -88,19 +108,26 @@ export class LeadsGateway {
     ) {
       throw new WsException('Access denied to lead from another organization');
     }
-    const updated = await this.leadsService.update(data.leadId, data.dto);
+
+    const dto: UpdateLeadDto = data?.dto || {
+      status: data?.status,
+      order: data?.order,
+      data: data?.data,
+    };
+
+    const updated = await this.leadsService.update(lead._id.toString(), dto);
     return updated;
   }
 
   @SubscribeMessage('lead:delete')
   async handleLeadDelete(
-    @MessageBody() data: { leadId: string },
+    @MessageBody() data: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     this.logger.log(
-      `[WS lead:delete] User ${client.user.email} -> Lead ${data.leadId}`,
+      `[WS lead:delete] User ${client.user.email} -> Payload: ${JSON.stringify(data)}`,
     );
-    const lead = await this.leadsService.findOne(data.leadId);
+    const lead = await this.resolveLead(data);
     if (!lead) {
       throw new WsException('Lead not found');
     }
@@ -112,7 +139,7 @@ export class LeadsGateway {
     ) {
       throw new WsException('Access denied to lead from another organization');
     }
-    return this.leadsService.delete(data.leadId, lead.organizationId.toString());
+    return this.leadsService.delete(lead._id.toString(), lead.organizationId.toString());
   }
 
   // ── Event-driven broadcasts ───────────────────────────────────

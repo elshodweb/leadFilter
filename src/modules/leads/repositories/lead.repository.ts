@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Lead, LeadDocument, LeadStatus } from '../schemas/lead.schema';
 import {
   PaginatedResult,
@@ -54,10 +54,12 @@ export class LeadRepository {
   }
 
   async findById(id: string): Promise<LeadDocument | null> {
+    if (!id || !Types.ObjectId.isValid(id)) return null;
     return this.model.findById(id).lean() as Promise<LeadDocument | null>;
   }
 
   async findByChatId(chatId: string): Promise<LeadDocument | null> {
+    if (!chatId || !Types.ObjectId.isValid(chatId)) return null;
     return this.model
       .findOne({ chatId })
       .lean() as Promise<LeadDocument | null>;
