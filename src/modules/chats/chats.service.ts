@@ -9,6 +9,7 @@ import type { LeadQuestionDocument } from '../knowledge/schemas/lead-question.sc
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ChatRepository } from './repositories/chat.repository';
 import { ChatChannel, ChatStatus } from './schemas/chat.schema';
+import { MessageSenderType } from '../messages/schemas/message.schema';
 import { MessagesService } from '../messages/messages.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { AiService } from '../ai/ai.service';
@@ -382,28 +383,45 @@ export class ChatsService implements OnModuleInit {
     // 2. Enrich Instagram customer profile if missing
     this.enrichInstagramProfile(organizationId, chat);
 
-    // 3. Set ai_enabled to false so AI stops automatically replying
-    if (chat.ai_enabled !== false) {
-      await this.chatRepo.update(chat._id.toString(), {
-        ai_enabled: false,
-      });
-      chat.ai_enabled = false;
+    // 3. Check if this echo is a reflection of a message sent by our platform (Admin or AI)
+    let isPlatformEcho = this.isRecentlySentByPlatform(
+      chat._id.toString(),
+      content,
+    );
+
+    // Secondary DB check: verify if a recent message was an AI or HUMAN message sent within 60s
+    if (!isPlatformEcho) {
+      const recentMsgs = await this.messagesService.getLastN(
+        chat._id.toString(),
+        5,
+      );
+      const matchedRecent = recentMsgs.find(
+        (m) =>
+          (m.senderType === MessageSenderType.ASSISTENT ||
+            m.senderType === MessageSenderType.HUMAN) &&
+          m.content.trim() === content.trim() &&
+          Date.now() - new Date((m as any).createdAt || Date.now()).getTime() <
+            60000,
+      );
+      if (matchedRecent) {
+        isPlatformEcho = true;
+      }
     }
 
-    // 4. Check if this echo is a reflection of a message sent by our platform agent
-    if (this.isRecentlySentByPlatform(chat._id.toString(), content)) {
+    if (isPlatformEcho) {
       this.logger.log(
         `[Echo Pipeline] Ignored echo message because it was already sent from our platform: "${content.substring(0, 35)}..."`,
       );
       if (externalMessageId) {
-        const recentHuman = await this.messagesService.getLastN(
+        const recentMsgs = await this.messagesService.getLastN(
           chat._id.toString(),
-          3,
+          5,
         );
-        const match = recentHuman.find(
+        const match = recentMsgs.find(
           (m) =>
-            m.senderType === 'HUMAN' &&
-            m.content === content &&
+            (m.senderType === MessageSenderType.HUMAN ||
+              m.senderType === MessageSenderType.ASSISTENT) &&
+            m.content.trim() === content.trim() &&
             !m.externalMessageId,
         );
         if (match) {
@@ -414,6 +432,15 @@ export class ChatsService implements OnModuleInit {
         }
       }
       return { chat, message: null };
+    }
+
+    // 4. Genuine external echo (operator typed in Instagram mobile app or Meta Business Suite)
+    // Auto turn off AI for this chat when human operator replies via Instagram app
+    if (chat.ai_enabled !== false) {
+      await this.chatRepo.update(chat._id.toString(), {
+        ai_enabled: false,
+      });
+      chat.ai_enabled = false;
     }
 
     // 5. Save as HUMAN message (with deduplication check)
@@ -622,6 +649,7 @@ export class ChatsService implements OnModuleInit {
       aiResponse.reply,
     );
     this.logger.debug(`[Pipeline] AI message saved: ${aiMsg._id}`);
+    this.markPlatformMessageSent(chat._id.toString(), aiResponse.reply);
     this.eventEmitter.emit('message.new', aiMsg);
 
     // 8.1 Deliver AI message to customer on Instagram
@@ -639,6 +667,14 @@ export class ChatsService implements OnModuleInit {
             apiVersion: org.metaGraphApiVersion,
             recipientId: chat.externalChatId,
             text: aiResponse.reply,
+          })
+          .then(async (result) => {
+            if (result.success && result.messageId && aiMsg?._id) {
+              await this.messagesService.updateExternalMessageId(
+                aiMsg._id.toString(),
+                result.messageId,
+              );
+            }
           })
           .catch((err) => {
             this.logger.error(
@@ -782,6 +818,7 @@ export class ChatsService implements OnModuleInit {
       chatId,
       aiResponse.reply,
     );
+    this.markPlatformMessageSent(chatId, aiResponse.reply);
     this.eventEmitter.emit('message.new', aiMsg);
 
     // 4. Deliver to Instagram
@@ -796,6 +833,14 @@ export class ChatsService implements OnModuleInit {
             apiVersion: org.metaGraphApiVersion,
             recipientId: chat.externalChatId,
             text: aiResponse.reply,
+          })
+          .then(async (result) => {
+            if (result.success && result.messageId && aiMsg?._id) {
+              await this.messagesService.updateExternalMessageId(
+                aiMsg._id.toString(),
+                result.messageId,
+              );
+            }
           })
           .catch((err) => {
             this.logger.error(
