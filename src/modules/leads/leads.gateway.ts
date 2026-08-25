@@ -46,11 +46,27 @@ export class LeadsGateway {
     return this.leadsService.findAll(dto);
   }
 
+  private parsePayload(data: any): any {
+    if (typeof data === 'string') {
+      const trimmed = data.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          // ignore
+        }
+      }
+      return { leadId: trimmed };
+    }
+    return data || {};
+  }
+
   @SubscribeMessage('lead:get')
   async handleLeadGet(
-    @MessageBody() data: { leadId: string },
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const data = this.parsePayload(rawData);
     const leadId = data?.leadId;
     if (!leadId) {
       throw new WsException('leadId is required');
@@ -77,10 +93,10 @@ export class LeadsGateway {
   @SubscribeMessage('lead:update')
   @UsePipes(WsValidationPipe)
   async handleLeadUpdate(
-    @MessageBody()
-    data: { leadId: string; dto?: UpdateLeadDto } & UpdateLeadDto,
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const data = this.parsePayload(rawData);
     const leadId = data?.leadId;
     if (!leadId) {
       throw new WsException('leadId is required');
@@ -114,9 +130,10 @@ export class LeadsGateway {
 
   @SubscribeMessage('lead:delete')
   async handleLeadDelete(
-    @MessageBody() data: { leadId: string },
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const data = this.parsePayload(rawData);
     const leadId = data?.leadId;
     if (!leadId) {
       throw new WsException('leadId is required');

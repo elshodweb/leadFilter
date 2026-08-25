@@ -45,12 +45,28 @@ export class ChatsGateway
     this.logger.debug(`[WS Client Disconnected] Socket ID: ${client.id}`);
   }
 
+  private parsePayload(data: any): any {
+    if (typeof data === 'string') {
+      const trimmed = data.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          // ignore
+        }
+      }
+      return { chatId: trimmed, organizationId: trimmed };
+    }
+    return data || {};
+  }
+
   /** Join an organization room to receive all org-level events */
   @SubscribeMessage('join:org')
   handleJoinOrg(
-    @MessageBody() data: { organizationId?: string },
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const data = this.parsePayload(rawData);
     const isAdmin = client.user.role === UserRole.ADMIN;
     const targetOrgId =
       isAdmin && data?.organizationId
@@ -74,12 +90,18 @@ export class ChatsGateway
   /** Join a specific chat room */
   @SubscribeMessage('join:chat')
   async handleJoinChat(
-    @MessageBody() data: { chatId: string },
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    const chat = await this.chatsService.findOne(data.chatId);
+    const data = this.parsePayload(rawData);
+    const chatId = data?.chatId;
+    if (!chatId) {
+      throw new WsException('chatId is required');
+    }
+
+    const chat = await this.chatsService.findOne(chatId);
     if (!chat) {
-      this.logger.warn(`[WS join:chat] Chat not found: ${data.chatId}`);
+      this.logger.warn(`[WS join:chat] Chat not found: ${chatId}`);
       throw new WsException('Chat not found');
     }
 
@@ -89,16 +111,16 @@ export class ChatsGateway
       chat.organizationId.toString() !== client.user.organizationId
     ) {
       this.logger.warn(
-        `[WS join:chat] Access denied for User ${client.user.email} to chat ${data.chatId}`,
+        `[WS join:chat] Access denied for User ${client.user.email} to chat ${chatId}`,
       );
       throw new WsException('Access denied to chat from another organization');
     }
 
-    client.join(`chat:${data.chatId}`);
+    client.join(`chat:${chatId}`);
     this.logger.log(
-      `[WS join:chat] User ${client.user.email} (Socket ${client.id}) joined room "chat:${data.chatId}"`,
+      `[WS join:chat] User ${client.user.email} (Socket ${client.id}) joined room "chat:${chatId}"`,
     );
-    return { event: 'joined', data: `chat:${data.chatId}` };
+    return { event: 'joined', data: `chat:${chatId}` };
   }
 
   /** Get paginated chat list for the authenticated organization */
@@ -123,9 +145,10 @@ export class ChatsGateway
   /** Get chat stats and counts per status tab */
   @SubscribeMessage('chat:stats')
   async handleChatStats(
-    @MessageBody() data: { organizationId?: string },
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const data = this.parsePayload(rawData);
     const isAdmin = client.user.role === UserRole.ADMIN;
     const targetOrgId =
       isAdmin && data?.organizationId
@@ -137,11 +160,17 @@ export class ChatsGateway
   /** Get single chat */
   @SubscribeMessage('chat:get')
   async handleChatGet(
-    @MessageBody() data: { chatId: string },
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    this.logger.debug(`[WS chat:get] User: ${client.user.email}, ChatId: ${data.chatId}`);
-    const chat = await this.chatsService.findOne(data.chatId);
+    const data = this.parsePayload(rawData);
+    const chatId = data?.chatId;
+    if (!chatId) {
+      throw new WsException('chatId is required');
+    }
+
+    this.logger.debug(`[WS chat:get] User: ${client.user.email}, ChatId: ${chatId}`);
+    const chat = await this.chatsService.findOne(chatId);
     if (!chat) {
       throw new WsException('Chat not found');
     }
@@ -160,10 +189,10 @@ export class ChatsGateway
   @SubscribeMessage('chat:update')
   @UsePipes(WsValidationPipe)
   async handleChatUpdate(
-    @MessageBody()
-    data: { chatId: string; dto?: UpdateChatDto } & UpdateChatDto,
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const data = this.parsePayload(rawData);
     const chatId = data?.chatId;
     if (!chatId) {
       throw new WsException('chatId is required');
@@ -195,13 +224,19 @@ export class ChatsGateway
   /** Delete a chat and all its messages */
   @SubscribeMessage('chat:delete')
   async handleChatDelete(
-    @MessageBody() data: { chatId: string },
+    @MessageBody() rawData: any,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const data = this.parsePayload(rawData);
+    const chatId = data?.chatId;
+    if (!chatId) {
+      throw new WsException('chatId is required');
+    }
+
     this.logger.log(
-      `[WS chat:delete] User: ${client.user.email}, ChatId: ${data.chatId}`,
+      `[WS chat:delete] User: ${client.user.email}, ChatId: ${chatId}`,
     );
-    const chat = await this.chatsService.findOne(data.chatId);
+    const chat = await this.chatsService.findOne(chatId);
     if (!chat) {
       throw new WsException('Chat not found');
     }
@@ -213,7 +248,7 @@ export class ChatsGateway
     ) {
       throw new WsException('Access denied to chat from another organization');
     }
-    return this.chatsService.delete(data.chatId, chat.organizationId.toString());
+    return this.chatsService.delete(chatId, chat.organizationId.toString());
   }
 
   // ── Event-driven broadcasts ───────────────────────────────────
