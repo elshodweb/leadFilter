@@ -10,6 +10,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { ChatsModule } from './modules/chats/chats.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
@@ -31,6 +32,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     MessagesModule,
     LeadsModule,
     ChatsModule,
+    AnalyticsModule,
   ],
   providers: [
     // Apply JWT guard globally — use @Public() to opt-out specific routes

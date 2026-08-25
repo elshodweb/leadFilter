@@ -274,6 +274,9 @@ Incoming Customer Message
 | `GET` | `/leads/:id` | Bearer + ADMIN | Get lead by ID |
 | `PATCH` | `/leads/:id` | Bearer + ADMIN | Update lead status, order or data |
 | `DELETE` | `/leads/:id` | Bearer + ADMIN | Delete lead |
+| `GET` | `/analytics/kpi` | Bearer | Get AI KPI metrics, operator time saved, and cost saved (supports `organizationId`, `startDate`, `endDate`) |
+| `GET` | `/analytics` | Bearer | Alias to get KPI metrics |
+| `GET` | `/analytics/organization/:orgId` | Bearer | Get KPI metrics for specific organization |
 | `GET` | `/webhook/instagram` | Public | Instagram Meta webhook verification |
 | `POST` | `/webhook/instagram` | Public | Instagram incoming message ingestion |
 
