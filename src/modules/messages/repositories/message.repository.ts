@@ -57,6 +57,15 @@ export class MessageRepository {
       .lean() as Promise<MessageDocument | null>;
   }
 
+  async updateExternalMessageId(
+    id: string,
+    externalMessageId: string,
+  ): Promise<MessageDocument | null> {
+    return this.model
+      .findByIdAndUpdate(id, { $set: { externalMessageId } }, { new: true })
+      .lean() as Promise<MessageDocument | null>;
+  }
+
   async deleteByChatId(chatId: string): Promise<any> {
     return this.model.deleteMany({ chatId });
   }

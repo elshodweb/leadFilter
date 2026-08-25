@@ -254,15 +254,38 @@ export class ChatsService implements OnModuleInit {
     return chat;
   }
 
+  // In-memory tracker of messages sent from platform to prevent echo duplicate echoes
+  private readonly sentPlatformMessageKeys = new Map<string, number>();
+
+  private markPlatformMessageSent(chatId: string, content: string) {
+    const key = `${chatId}:${content.trim()}`;
+    this.sentPlatformMessageKeys.set(key, Date.now());
+    setTimeout(() => this.sentPlatformMessageKeys.delete(key), 60000);
+  }
+
+  private isRecentlySentByPlatform(chatId: string, content: string): boolean {
+    const key = `${chatId}:${content.trim()}`;
+    const timestamp = this.sentPlatformMessageKeys.get(key);
+    if (!timestamp) return false;
+    if (Date.now() - timestamp < 45000) {
+      this.sentPlatformMessageKeys.delete(key);
+      return true;
+    }
+    return false;
+  }
+
   @OnEvent('message.human')
   async handleHumanMessageEvent(payload: {
     chatId: string;
     content: string;
     organizationId: string;
+    message?: any;
   }) {
     this.logger.log(
       `[Event message.human] Agent sent message to chat ${payload.chatId}`,
     );
+    this.markPlatformMessageSent(payload.chatId, payload.content);
+
     await this.updateLastMessage(payload.chatId, payload.content);
 
     // Auto turn off AI for this chat when human agent replies
@@ -283,6 +306,14 @@ export class ChatsService implements OnModuleInit {
             apiVersion: org.metaGraphApiVersion,
             recipientId: chat.externalChatId,
             text: payload.content,
+          })
+          .then(async (result) => {
+            if (result.success && result.messageId && payload.message?._id) {
+              await this.messagesService.updateExternalMessageId(
+                payload.message._id.toString(),
+                result.messageId,
+              );
+            }
           })
           .catch((err) => {
             this.logger.error(
@@ -358,7 +389,33 @@ export class ChatsService implements OnModuleInit {
       chat.ai_enabled = false;
     }
 
-    // 4. Save as HUMAN message (with deduplication check)
+    // 4. Check if this echo is a reflection of a message sent by our platform agent
+    if (this.isRecentlySentByPlatform(chat._id.toString(), content)) {
+      this.logger.log(
+        `[Echo Pipeline] Ignored echo message because it was already sent from our platform: "${content.substring(0, 35)}..."`,
+      );
+      if (externalMessageId) {
+        const recentHuman = await this.messagesService.getLastN(
+          chat._id.toString(),
+          3,
+        );
+        const match = recentHuman.find(
+          (m) =>
+            m.senderType === 'HUMAN' &&
+            m.content === content &&
+            !m.externalMessageId,
+        );
+        if (match) {
+          await this.messagesService.updateExternalMessageId(
+            match._id.toString(),
+            externalMessageId,
+          );
+        }
+      }
+      return { chat, message: null };
+    }
+
+    // 5. Save as HUMAN message (with deduplication check)
     if (externalMessageId) {
       const existingMsg =
         await this.messagesService.findByExternalMessageId(externalMessageId);
@@ -378,7 +435,7 @@ export class ChatsService implements OnModuleInit {
     this.logger.debug(`[Echo Pipeline] Operator message saved: ${humanMsg._id}`);
     this.eventEmitter.emit('message.new', humanMsg);
 
-    // 5. Update last message & broadcast chat update to web platform
+    // 6. Update last message & broadcast chat update to web platform
     const updatedChat = await this.chatRepo.updateLastMessage(
       chat._id.toString(),
       content,

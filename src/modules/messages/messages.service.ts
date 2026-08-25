@@ -62,6 +62,10 @@ export class MessagesService {
     return this.repo.findByExternalMessageId(externalMessageId);
   }
 
+  updateExternalMessageId(id: string, externalMessageId: string) {
+    return this.repo.updateExternalMessageId(id, externalMessageId);
+  }
+
   saveAiReply(organizationId: string, chatId: string, content: string) {
     this.logger.debug(
       `Saving AI reply for chat ${chatId}: "${content.substring(0, 30)}..."`,
