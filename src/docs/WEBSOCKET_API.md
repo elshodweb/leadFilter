@@ -253,20 +253,42 @@ Get a single lead by ID.
 ---
 
 ### `lead:update`
-Update a lead's status or data.
+Update a lead's status, order (Jira-style Kanban board drag & drop), or collected data.
+
+- **Reordering within the same status column**: Pass `{ "order": targetOrder }`. Other cards in that column automatically shift up/down to preserve a 1-to-N continuous sequence.
+- **Moving to a new status column**: Pass `{ "status": "IN_PROGRESS", "order": targetOrder }`. The source column gap is automatically closed, and items in the destination column shift to make room.
 
 ```json
-// Emit payload
+// Emit payload (status change + column order)
 {
   "leadId": "68030xyz...",
   "dto": {
     "status": "IN_PROGRESS",
+    "order": 2,
     "data": { "phone": "+998901234567" }
   }
 }
 
 // Response (ack)
-{ /* Updated Lead object */ }
+{ /* Updated Lead object with new status and order */ }
+```
+
+---
+
+### `lead:delete`
+Delete a lead by ID. Subsequent leads in the same status column will automatically shift down by 1 to eliminate gaps in the Jira board sequence.
+
+```json
+// Emit payload
+{
+  "leadId": "68030xyz..."
+}
+
+// Response (ack)
+{
+  "success": true,
+  "message": "Lead 68030xyz... deleted successfully."
+}
 ```
 
 ---
@@ -471,7 +493,7 @@ Fired when a new lead is automatically generated upon completing all AI question
 ---
 
 ### `lead:updated`
-Fired when a lead status or collected data is updated (via REST `PATCH /leads/:id` or WebSocket `lead:update`).
+Fired when a lead status, order, or collected data is updated (via REST `PATCH /leads/:id` or WebSocket `lead:update`).
 
 - **Room**: `org:{organizationId}`
 
@@ -481,6 +503,7 @@ Fired when a lead status or collected data is updated (via REST `PATCH /leads/:i
   "organizationId": "68030abc...",
   "chatId": "68030def...",
   "status": "IN_PROGRESS",
+  "order": 2,
   "data": [
     {
       "id": "6a8459affff7e995293db7d1",
@@ -495,6 +518,22 @@ Fired when a lead status or collected data is updated (via REST `PATCH /leads/:i
   ],
   "createdAt": "2026-08-18T10:15:00.000Z",
   "updatedAt": "2026-08-18T10:20:00.000Z"
+}
+```
+
+---
+
+### `lead:deleted`
+Fired when a lead is deleted (via REST `DELETE /leads/:id` or WebSocket `lead:delete`).
+
+- **Room**: `org:{organizationId}`
+- **Usage**: Remove the deleted lead card from the Jira board / list.
+
+```json
+{
+  "leadId": "lead_abc...",
+  "organizationId": "68030abc...",
+  "status": "IN_PROGRESS"
 }
 ```
 
@@ -738,7 +777,8 @@ export function ChatSidebar({ organizationId, token }) {
 | GET | `/organizations/:orgId/additional-information` | Bearer + ADMIN | List additional info (org scoped) |
 | GET | `/leads` | Bearer + ADMIN | List leads for authenticated org |
 | GET | `/leads/:id` | Bearer + ADMIN | Get lead by ID (org scoped) |
-| PATCH | `/leads/:id` | Bearer + ADMIN | Update lead (org scoped) |
+| PATCH | `/leads/:id` | Bearer + ADMIN | Update lead status, order or data (org scoped) |
+| DELETE | `/leads/:id` | Bearer + ADMIN | Delete lead (org scoped) |
 | GET | `/webhook/instagram` | Public | Instagram webhook verification |
 | POST | `/webhook/instagram` | Public | Instagram incoming message receiver |
 

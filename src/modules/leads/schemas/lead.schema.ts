@@ -21,9 +21,12 @@ export class Lead {
   @Prop({ enum: LeadStatus, default: LeadStatus.NEW })
   status: LeadStatus;
 
+  @Prop({ default: 1 })
+  order: number;
+
   @Prop({ type: [Object], default: [] })
   data: any[];
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);
-LeadSchema.index({ organizationId: 1, status: 1 });
+LeadSchema.index({ organizationId: 1, status: 1, order: 1 });

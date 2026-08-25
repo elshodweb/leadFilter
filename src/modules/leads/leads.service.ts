@@ -1,17 +1,58 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { LeadRepository } from './repositories/lead.repository';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { ListLeadsDto } from './dto/list-leads.dto';
 
 @Injectable()
-export class LeadsService {
+export class LeadsService implements OnModuleInit {
   private readonly logger = new Logger(LeadsService.name);
 
   constructor(
     private readonly repo: LeadRepository,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  async onModuleInit() {
+    this.migrateOldLeads().catch((err) => {
+      this.logger.warn(`Migration of old leads failed: ${err.message}`);
+    });
+  }
+
+  private async migrateOldLeads() {
+    const rawLeads = await this.repo.findRawAll();
+    const grouped: Record<string, any[]> = {};
+
+    for (const lead of rawLeads) {
+      if (lead.order === undefined || lead.order === null) {
+        const key = `${lead.organizationId?.toString()}:${lead.status || 'NEW'}`;
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(lead);
+      }
+    }
+
+    let count = 0;
+    for (const [, leads] of Object.entries(grouped)) {
+      let currentOrder = 1;
+      for (const lead of leads) {
+        await this.repo.updateRaw(lead._id.toString(), {
+          order: currentOrder++,
+        });
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      this.logger.log(
+        `[Migration] Successfully assigned sequential order to ${count} existing leads.`,
+      );
+    }
+  }
 
   async createFromChat(
     organizationId: string,
@@ -56,6 +97,29 @@ export class LeadsService {
     if (!lead) throw new NotFoundException(`Lead ${id} not found`);
     this.eventEmitter.emit('lead.updated', lead);
     return lead;
+  }
+
+  async delete(id: string, organizationId?: string) {
+    this.logger.log(`Deleting lead ${id} (org: ${organizationId || 'any'})`);
+    const lead = await this.repo.findById(id);
+    if (!lead) throw new NotFoundException(`Lead ${id} not found`);
+
+    if (organizationId && lead.organizationId.toString() !== organizationId) {
+      throw new NotFoundException(`Lead ${id} not found in this organization`);
+    }
+
+    const deleted = await this.repo.delete(id);
+    this.eventEmitter.emit('lead.deleted', {
+      leadId: id,
+      organizationId: lead.organizationId.toString(),
+      status: lead.status,
+    });
+
+    return {
+      success: true,
+      message: `Lead ${id} deleted successfully.`,
+      lead: deleted,
+    };
   }
 
   deleteByChatId(chatId: string) {

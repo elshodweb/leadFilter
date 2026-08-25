@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -48,9 +49,18 @@ export class LeadsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update lead status or data (Admin)' })
+  @ApiOperation({ summary: 'Update lead status, order or data (Admin)' })
   @ApiParam({ name: 'id' })
   update(@Param('id') id: string, @Body() dto: UpdateLeadDto) {
     return this.svc.update(id, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete lead (Admin)' })
+  @ApiParam({ name: 'id' })
+  delete(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    const orgId =
+      req.user.role === UserRole.ADMIN ? undefined : req.user.organizationId;
+    return this.svc.delete(id, orgId);
   }
 }

@@ -155,6 +155,7 @@ Organization
   organizationId: ObjectId,
   chatId: ObjectId,               // unique 1:1 relation to the qualifying Chat
   status: 'NEW' | 'IN_PROGRESS' | 'WON' | 'LOST', // default: NEW
+  order: number,                  // 1-based order position within the status column
   data: Record<string, any>,      // complete map of all LeadQuestions answers
   createdAt: Date,
   updatedAt: Date
@@ -190,9 +191,25 @@ Incoming Customer Message
 9. Update Chat.collectedData with new extracted values
 10. If isComplete === true (all LeadQuestions have non-null answers):
     - Check if Lead already exists for this chatId
-    - If not, create Lead (status: 'NEW', data: collectedData)
+    - If not, create Lead (status: 'NEW', order: nextOrder, data: collectedData)
     - Emit 'lead.new' (broadcasts 'lead:new' to org room)
 ```
+
+### 📋 Jira-Style Kanban Board Lead Reordering Algorithm
+1. **Creation**:
+   - When a new lead is created with `status: 'NEW'`, it automatically gets `order = nextOrder` within that status column.
+2. **Reordering within the Same Status Column (`PATCH /leads/:id` or WebSocket `lead:update`)**:
+   - User drags a card from `oldOrder` to `targetOrder` within the same column:
+     - **Moving UP** (`targetOrder < oldOrder`): Cards in `[targetOrder, oldOrder - 1]` shift `+1` (`{ $inc: { order: 1 } }`).
+     - **Moving DOWN** (`targetOrder > oldOrder`): Cards in `[oldOrder + 1, targetOrder]` shift `-1` (`{ $inc: { order: -1 } }`).
+     - Target lead is assigned `order = targetOrder`.
+3. **Moving Across Status Columns (e.g. from `NEW` to `IN_PROGRESS`)**:
+   - User drags a card to a new status column at `targetOrder`:
+     - **Source Column**: All subsequent cards with `order > oldOrder` shift `-1` (`{ $inc: { order: -1 } }`) to close the gap.
+     - **Destination Column**: All cards with `order >= targetOrder` shift `+1` (`{ $inc: { order: 1 } }`) to make room.
+     - Target lead is assigned `status = newStatus` and `order = targetOrder`.
+4. **Deletion (`DELETE /leads/:id` or WebSocket `lead:delete`)**:
+   - When a lead at `deletedOrder` in `status` is deleted, all cards in that status with `order > deletedOrder` shift `-1` to eliminate gaps in the sequence.
 
 ### 🔄 Lead Questions Auto-Counter & Swipe Reordering Algorithm
 1. **Creation (`POST /organizations/:orgId/lead-questions`)**:
@@ -255,7 +272,8 @@ Incoming Customer Message
 | `DELETE` | `/organizations/:orgId/additional-information/:id` | Bearer + ADMIN | Delete additional information item |
 | `GET` | `/leads` | Bearer + ADMIN | List leads for current organization |
 | `GET` | `/leads/:id` | Bearer + ADMIN | Get lead by ID |
-| `PATCH` | `/leads/:id` | Bearer + ADMIN | Update lead status or data |
+| `PATCH` | `/leads/:id` | Bearer + ADMIN | Update lead status, order or data |
+| `DELETE` | `/leads/:id` | Bearer + ADMIN | Delete lead |
 | `GET` | `/webhook/instagram` | Public | Instagram Meta webhook verification |
 | `POST` | `/webhook/instagram` | Public | Instagram incoming message ingestion |
 
@@ -269,21 +287,25 @@ Incoming Customer Message
 - `chat:list` (`ListChatsDto`): Fetch paginated chats.
 - `chat:get` (`{ chatId }`): Fetch single chat.
 - `chat:update` (`{ chatId, dto: UpdateChatDto }`): Update chat status.
+- `chat:delete` (`{ chatId }`): Delete chat and all messages.
 - `messages:list` (`ListMessagesDto`): Fetch chat message history.
 - `message:send` (`SendMessageDto`): Send a message as a human operator.
 - `lead:list` (`ListLeadsDto`): Fetch paginated leads.
 - `lead:get` (`{ leadId }`): Fetch single lead.
-- `lead:update` (`{ leadId, dto: UpdateLeadDto }`): Update lead status/data.
+- `lead:update` (`{ leadId, dto: UpdateLeadDto }`): Update lead status, order (Jira Kanban drag & drop), or data.
+- `lead:delete` (`{ leadId }`): Delete lead.
 - `org:get` (`{ organizationId }`): Fetch organization info.
 - `knowledge:get` (`{ organizationId }`): Fetch all AI knowledge context.
 
 ### Server → Client Broadcasts
 - `chat:new`: New chat started (`org:{organizationId}`).
 - `chat:updated`: Chat status changed (`org:{organizationId}`).
+- `chat:deleted`: Chat deleted (`org:{organizationId}`).
 - `message:new`: Customer incoming or operator outgoing message (`chat:{chatId}`, `org:{organizationId}`).
 - `message:ai`: AI assistant reply (`chat:{chatId}`, `org:{organizationId}`).
 - `lead:new`: Lead completed and created (`org:{organizationId}`).
-- `lead:updated`: Lead updated (`org:{organizationId}`).
+- `lead:updated`: Lead updated or reordered (`org:{organizationId}`).
+- `lead:deleted`: Lead deleted (`org:{organizationId}`).
 - `org:updated`: Organization profile updated (`org:{organizationId}`).
 - `knowledge:updated`: Knowledge items updated (`org:{organizationId}`).
 - `error`: Error notification with message and code.
@@ -298,7 +320,7 @@ Incoming Customer Message
 | `MONGODB_URI` | MongoDB Connection URI | Yes | `mongodb://admin:password123@localhost:27017/lead_filter?authSource=admin` |
 | `MONGODB_DB_NAME` | MongoDB Database Name | Yes | `lead_filter` |
 | `OPENAI_API_KEY` | OpenAI API Key | Yes | `sk-proj-...` |
-| `OPENAI_MODEL` | OpenAI Model Name | Yes | `gpt-4.1-mini` |
+| `OPENAI_MODEL` | OpenAI Model Name | Yes | `gpt-4o-mini` |
 | `JWT_ACCESS_SECRET` | Secret for signing access tokens | Yes | `your_access_secret` |
 | `JWT_REFRESH_SECRET` | Secret for signing refresh tokens | Yes | `your_refresh_secret` |
 | `JWT_ACCESS_EXPIRES_IN` | Access token lifespan | No (default `15m`) | `15m` |

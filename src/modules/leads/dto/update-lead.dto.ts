@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 import { LeadStatus } from '../schemas/lead.schema';
 
 export class UpdateLeadDto {
@@ -7,6 +7,15 @@ export class UpdateLeadDto {
   @IsOptional()
   @IsEnum(LeadStatus)
   status?: LeadStatus;
+
+  @ApiPropertyOptional({
+    description: 'Order position within the status column (1-based)',
+    example: 1,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  order?: number;
 
   @ApiPropertyOptional({ description: 'Lead collected data array or object' })
   @IsOptional()

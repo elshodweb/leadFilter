@@ -92,6 +92,29 @@ export class LeadsGateway {
     return updated;
   }
 
+  @SubscribeMessage('lead:delete')
+  async handleLeadDelete(
+    @MessageBody() data: { leadId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    this.logger.log(
+      `[WS lead:delete] User ${client.user.email} -> Lead ${data.leadId}`,
+    );
+    const lead = await this.leadsService.findOne(data.leadId);
+    if (!lead) {
+      throw new WsException('Lead not found');
+    }
+
+    const isAdmin = client.user.role === UserRole.ADMIN;
+    if (
+      !isAdmin &&
+      lead.organizationId.toString() !== client.user.organizationId
+    ) {
+      throw new WsException('Access denied to lead from another organization');
+    }
+    return this.leadsService.delete(data.leadId, lead.organizationId.toString());
+  }
+
   // ── Event-driven broadcasts ───────────────────────────────────
 
   @OnEvent('lead.new')
@@ -108,5 +131,19 @@ export class LeadsGateway {
       `[WS Broadcast lead:updated] Emitting to room "org:${lead.organizationId}" for Lead ${lead._id}`,
     );
     this.server.to(`org:${lead.organizationId}`).emit('lead:updated', lead);
+  }
+
+  @OnEvent('lead.deleted')
+  broadcastLeadDeleted(payload: {
+    leadId: string;
+    organizationId: string;
+    status: string;
+  }) {
+    this.logger.debug(
+      `[WS Broadcast lead:deleted] Emitting to room "org:${payload.organizationId}" for Lead ${payload.leadId}`,
+    );
+    this.server
+      .to(`org:${payload.organizationId}`)
+      .emit('lead:deleted', payload);
   }
 }
