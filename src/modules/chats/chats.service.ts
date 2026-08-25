@@ -579,28 +579,41 @@ export class ChatsService implements OnModuleInit {
     );
 
     // 7. Call AI
-    this.logger.log(`[Pipeline] Invoking AI for chat ${chat._id}...`);
-    const aiResponse = await this.aiService.processMessage({
-      organizationId,
-      chatId: chat._id.toString(),
-      companyInfo: companyInfo.map((c) => ({
-        title: c.title,
-        description: c.description,
-      })),
-      additionalInfo: additionalInfo.map((a) => ({
-        title: a.title,
-        description: a.description,
-      })),
-      leadQuestions: leadQuestions.map((q) => ({
-        id: q._id.toString(),
-        title: q.title,
-        description: q.description,
-        order: q.order,
-      })),
-      chatHistory,
-      collectedData: chat.collectedData || [],
-      incomingMessage: content,
-    });
+    let aiResponse;
+    try {
+      this.logger.log(`[Pipeline] Invoking AI for chat ${chat._id}...`);
+      aiResponse = await this.aiService.processMessage({
+        organizationId,
+        chatId: chat._id.toString(),
+        companyInfo: companyInfo.map((c) => ({
+          title: c.title,
+          description: c.description,
+        })),
+        additionalInfo: additionalInfo.map((a) => ({
+          title: a.title,
+          description: a.description,
+        })),
+        leadQuestions: leadQuestions.map((q) => ({
+          id: q._id.toString(),
+          title: q.title,
+          description: q.description,
+          order: q.order,
+        })),
+        chatHistory,
+        collectedData: chat.collectedData || [],
+        incomingMessage: content,
+      });
+    } catch (err: any) {
+      this.logger.error(
+        `[Pipeline] AI response generation failed for chat ${chat._id}: ${err.message}`,
+      );
+      return {
+        chat: updatedAfterIncoming || chat,
+        message: incomingMsg,
+        aiReply: null,
+        lead: null,
+      };
+    }
 
     // 8. Save AI reply
     const aiMsg = await this.messagesService.saveAiReply(
@@ -733,27 +746,35 @@ export class ChatsService implements OnModuleInit {
     }));
 
     // 2. Call AI
-    const aiResponse = await this.aiService.processMessage({
-      organizationId,
-      chatId,
-      companyInfo: companyInfo.map((c) => ({
-        title: c.title,
-        description: c.description,
-      })),
-      additionalInfo: additionalInfo.map((a) => ({
-        title: a.title,
-        description: a.description,
-      })),
-      leadQuestions: leadQuestions.map((q) => ({
-        id: q._id.toString(),
-        title: q.title,
-        description: q.description,
-        order: q.order,
-      })),
-      chatHistory: chatHistory.slice(0, -1),
-      collectedData: chat.collectedData || [],
-      incomingMessage: lastMsg.content,
-    });
+    let aiResponse;
+    try {
+      aiResponse = await this.aiService.processMessage({
+        organizationId,
+        chatId,
+        companyInfo: companyInfo.map((c) => ({
+          title: c.title,
+          description: c.description,
+        })),
+        additionalInfo: additionalInfo.map((a) => ({
+          title: a.title,
+          description: a.description,
+        })),
+        leadQuestions: leadQuestions.map((q) => ({
+          id: q._id.toString(),
+          title: q.title,
+          description: q.description,
+          order: q.order,
+        })),
+        chatHistory: chatHistory.slice(0, -1),
+        collectedData: chat.collectedData || [],
+        incomingMessage: lastMsg.content,
+      });
+    } catch (err: any) {
+      this.logger.error(
+        `[triggerAiForChat] AI response generation failed for chat ${chatId}: ${err.message}`,
+      );
+      return;
+    }
 
     // 3. Save AI reply
     const aiMsg = await this.messagesService.saveAiReply(

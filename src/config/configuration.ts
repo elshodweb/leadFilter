@@ -6,7 +6,7 @@ export default () => ({
   },
   openai: {
     apiKey: process.env.OPENAI_API_KEY,
-    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'access_secret',

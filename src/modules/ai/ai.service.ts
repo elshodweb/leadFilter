@@ -15,7 +15,7 @@ export class AiService {
       apiKey: this.configService.get<string>('openai.apiKey'),
     });
     this.model =
-      this.configService.get<string>('openai.model') || 'gpt-4.1-mini';
+      this.configService.get<string>('openai.model') || 'gpt-4o-mini';
   }
 
   async processMessage(ctx: AiContextDto): Promise<AiResponseDto> {
