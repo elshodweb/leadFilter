@@ -160,13 +160,24 @@ export class ChatsGateway
   @SubscribeMessage('chat:update')
   @UsePipes(WsValidationPipe)
   async handleChatUpdate(
-    @MessageBody() data: { chatId: string; dto: UpdateChatDto },
+    @MessageBody()
+    data: { chatId: string; dto?: UpdateChatDto } & UpdateChatDto,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const chatId = data?.chatId;
+    if (!chatId) {
+      throw new WsException('chatId is required');
+    }
+
+    const dto: UpdateChatDto = data?.dto || {
+      status: data?.status,
+      ai_enabled: data?.ai_enabled,
+    };
+
     this.logger.log(
-      `[WS chat:update] User: ${client.user.email}, ChatId: ${data.chatId}, DTO: ${JSON.stringify(data.dto)}`,
+      `[WS chat:update] User: ${client.user.email}, ChatId: ${chatId}, DTO: ${JSON.stringify(dto)}`,
     );
-    const chat = await this.chatsService.findOne(data.chatId);
+    const chat = await this.chatsService.findOne(chatId);
     if (!chat) {
       throw new WsException('Chat not found');
     }
@@ -178,7 +189,7 @@ export class ChatsGateway
     ) {
       throw new WsException('Access denied to chat from another organization');
     }
-    return this.chatsService.update(data.chatId, data.dto);
+    return this.chatsService.update(chatId, dto);
   }
 
   /** Delete a chat and all its messages */

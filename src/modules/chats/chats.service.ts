@@ -604,28 +604,44 @@ export class ChatsService implements OnModuleInit {
    * if the latest message is an unanswered customer message.
    */
   async triggerAiForChat(chatId: string, organizationId: string) {
+    this.logger.log(`[triggerAiForChat] Checking chat ${chatId} (org: ${organizationId})...`);
     const chat = await this.chatRepo.findById(chatId);
-    if (!chat || chat.ai_enabled === false) return;
-
-    const lastMessages = await this.messagesService.getLastN(chatId, 1);
-    const lastMsg = lastMessages[0];
-    if (!lastMsg || lastMsg.senderType !== 'CUSTOMER') {
+    if (!chat) {
+      this.logger.warn(`[triggerAiForChat] Chat ${chatId} not found.`);
+      return;
+    }
+    if (chat.ai_enabled === false) {
       this.logger.debug(
-        `[triggerAiForChat] Chat ${chatId} latest message is not from customer. No need to auto-reply.`,
+        `[triggerAiForChat] Chat ${chatId} has ai_enabled === false. Skipping.`,
+      );
+      return;
+    }
+
+    const recentMessages = await this.messagesService.getLastN(chatId, 20);
+    if (!recentMessages || recentMessages.length === 0) {
+      this.logger.debug(
+        `[triggerAiForChat] Chat ${chatId} has no messages. No need to auto-reply.`,
+      );
+      return;
+    }
+
+    const lastMsg = recentMessages[0]; // newest message
+    if (lastMsg.senderType !== 'CUSTOMER') {
+      this.logger.log(
+        `[triggerAiForChat] Chat ${chatId} latest message is from ${lastMsg.senderType} ("${lastMsg.content}"). No unanswered customer message.`,
       );
       return;
     }
 
     this.logger.log(
-      `[triggerAiForChat] Chat ${chatId} re-enabled AI. Generating automated response to customer's unanswered question: "${lastMsg.content.substring(0, 35)}..."`,
+      `[triggerAiForChat] Chat ${chatId} re-enabled AI! Generating automated response to customer's unanswered question: "${lastMsg.content.substring(0, 35)}..."`,
     );
 
     // 1. Load context & history
     const { leadQuestions, companyInfo, additionalInfo } =
       await this.knowledgeService.loadAiContext(organizationId);
 
-    const recentMessages = await this.messagesService.getLastN(chatId, 20);
-    const chatHistory = recentMessages.reverse().map((m) => ({
+    const chatHistory = [...recentMessages].reverse().map((m) => ({
       role:
         m.senderType === 'CUSTOMER'
           ? ('user' as const)

@@ -43,7 +43,7 @@ export class MessageRepository {
   async findLastN(chatId: string, n = 20): Promise<MessageDocument[]> {
     return this.model
       .find({ chatId })
-      .sort({ sentAt: -1 })
+      .sort({ sentAt: -1, createdAt: -1 })
       .limit(n)
       .lean() as Promise<MessageDocument[]>;
   }
