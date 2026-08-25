@@ -112,11 +112,16 @@ export class ChatRepository {
   async updateCollectedData(
     chatId: string,
     data: any[],
+    status?: ChatStatus,
   ): Promise<ChatDocument | null> {
+    const update: any = { collectedData: data };
+    if (status) {
+      update.status = status;
+    }
     const doc = await this.model
       .findByIdAndUpdate(
         chatId,
-        { $set: { collectedData: data } },
+        { $set: update },
         { returnDocument: 'after' },
       )
       .lean();

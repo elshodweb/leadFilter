@@ -87,6 +87,15 @@ export class ChatsService implements OnModuleInit {
         needsUpdate = true;
       }
 
+      // Auto-recalculate status (COLD / WARM / HOT) based on collected answers
+      const targetStatus = this.calculateChatStatus(
+        updateData.collectedData || chat.collectedData || [],
+      );
+      if (chat.status !== targetStatus) {
+        updateData.status = targetStatus;
+        needsUpdate = true;
+      }
+
       if (needsUpdate) {
         await this.chatRepo.updateRaw(chat._id.toString(), updateData);
         migratedCount++;
@@ -105,6 +114,38 @@ export class ChatsService implements OnModuleInit {
         `[Migration] Successfully migrated ${migratedCount} old chats in database to new schema.`,
       );
     }
+  }
+
+  /**
+   * Automatically calculates lead temperature / chat status:
+   * - COLD: 0 questions answered (no collected data yet)
+   * - WARM: 1 or more questions answered, but not yet complete
+   * - HOT: All lead questions answered / qualification complete
+   */
+  calculateChatStatus(
+    collectedData: any[],
+    isComplete?: boolean,
+  ): ChatStatus {
+    if (isComplete) {
+      return ChatStatus.HOT;
+    }
+    if (!Array.isArray(collectedData) || collectedData.length === 0) {
+      return ChatStatus.COLD;
+    }
+    const answeredCount = collectedData.filter(
+      (item) =>
+        item.value !== null &&
+        item.value !== undefined &&
+        String(item.value).trim() !== '',
+    ).length;
+
+    if (answeredCount === 0) {
+      return ChatStatus.COLD;
+    }
+    if (answeredCount === collectedData.length) {
+      return ChatStatus.HOT;
+    }
+    return ChatStatus.WARM;
   }
 
   async findAll(dto: ListChatsDto) {
@@ -688,7 +729,12 @@ export class ChatsService implements OnModuleInit {
       }
     }
 
-    // 9. Update lastMessage with AI reply and collectedData
+    // 9. Update lastMessage with AI reply, collectedData and status (COLD / WARM / HOT)
+    const newStatus = this.calculateChatStatus(
+      aiResponse.collectedData,
+      aiResponse.isComplete,
+    );
+
     await this.chatRepo.updateLastMessage(
       chat._id.toString(),
       aiResponse.reply,
@@ -697,6 +743,7 @@ export class ChatsService implements OnModuleInit {
     const updatedChat = await this.chatRepo.updateCollectedData(
       chat._id.toString(),
       aiResponse.collectedData,
+      newStatus,
     );
     if (updatedChat) {
       this.eventEmitter.emit('chat.updated', updatedChat);
@@ -850,7 +897,12 @@ export class ChatsService implements OnModuleInit {
       }
     }
 
-    // 5. Update lastMessage and collectedData
+    // 5. Update lastMessage, collectedData, and status (COLD / WARM / HOT)
+    const newStatus = this.calculateChatStatus(
+      aiResponse.collectedData,
+      aiResponse.isComplete,
+    );
+
     await this.chatRepo.updateLastMessage(
       chatId,
       aiResponse.reply,
@@ -859,6 +911,7 @@ export class ChatsService implements OnModuleInit {
     const updatedChat = await this.chatRepo.updateCollectedData(
       chatId,
       aiResponse.collectedData,
+      newStatus,
     );
     if (updatedChat) {
       this.eventEmitter.emit('chat.updated', updatedChat);
