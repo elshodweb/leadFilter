@@ -26,14 +26,18 @@ export class MessageRepository {
     const [data, total] = await Promise.all([
       this.model
         .find({ chatId })
+        .sort({ sentAt: -1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
-        .sort({ sentAt: 1 })
         .lean(),
       this.model.countDocuments({ chatId }),
     ]);
+
+    // Reverse so messages in the batch are in chronological order (oldest -> newest, with items[items.length - 1] being the latest message)
+    const chronologicalData = (data as MessageDocument[]).reverse();
+
     return createPaginatedResponse(
-      data as MessageDocument[],
+      chronologicalData,
       total,
       page,
       limit,

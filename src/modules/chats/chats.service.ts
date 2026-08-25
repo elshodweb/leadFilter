@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import type { LeadDocument } from '../leads/schemas/lead.schema';
+import type { LeadQuestionDocument } from '../knowledge/schemas/lead-question.schema';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ChatRepository } from './repositories/chat.repository';
 import { ChatChannel, ChatStatus } from './schemas/chat.schema';
@@ -67,7 +68,7 @@ export class ChatsService implements OnModuleInit {
         const leadQuestions = await this.knowledgeService
           .loadAiContext(chat.organizationId?.toString())
           .then((ctx) => ctx.leadQuestions)
-          .catch(() => []);
+          .catch(() => [] as LeadQuestionDocument[]);
 
         updateData.collectedData = Object.entries(chat.collectedData).map(
           ([title, val]) => {
@@ -350,7 +351,7 @@ export class ChatsService implements OnModuleInit {
     // 1. Load lead questions to initialize collectedData for new chats
     const { leadQuestions: echoQuestions } = await this.knowledgeService
       .loadAiContext(organizationId)
-      .catch(() => ({ leadQuestions: [] }));
+      .catch(() => ({ leadQuestions: [] as LeadQuestionDocument[] }));
 
     const initialEchoCollectedData = (echoQuestions || [])
       .sort((a, b) => a.order - b.order)
