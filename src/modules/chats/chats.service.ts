@@ -53,6 +53,12 @@ export class ChatsService implements OnModuleInit {
         needsUpdate = true;
       }
 
+      if (chat.ai_enabled === undefined || chat.ai_enabled === null) {
+        updateData.ai_enabled =
+          chat.status === 'RETURNED_HUMAN' ? false : true;
+        needsUpdate = true;
+      }
+
       if (
         chat.collectedData &&
         !Array.isArray(chat.collectedData) &&
@@ -103,26 +109,78 @@ export class ChatsService implements OnModuleInit {
     this.logger.debug(
       `Listing chats with filter: org=${dto.organizationId || 'all'}, status=${dto.status || 'all'}, ai_enabled=${dto.ai_enabled ?? 'all'}, page=${dto.page || 1}`,
     );
-    const filter: Record<string, any> = {};
-    if (dto.organizationId) filter.organizationId = dto.organizationId;
-    if (dto.status) filter.status = dto.status;
-    if (dto.ai_enabled !== undefined) filter.ai_enabled = dto.ai_enabled;
+    const conditions: any[] = [];
+    if (dto.organizationId) {
+      conditions.push({ organizationId: dto.organizationId });
+    }
+
+    if (dto.status) {
+      if (dto.status === ChatStatus.COLD) {
+        conditions.push({
+          $or: [
+            { status: ChatStatus.COLD },
+            { status: 'AI_PROCESSING' },
+            { status: { $exists: false } },
+            { status: null },
+          ],
+        });
+      } else {
+        conditions.push({ status: dto.status });
+      }
+    }
+
+    if (dto.ai_enabled !== undefined) {
+      if (dto.ai_enabled === true) {
+        conditions.push({
+          $or: [
+            { ai_enabled: true },
+            { ai_enabled: { $exists: false } },
+            { ai_enabled: null },
+          ],
+        });
+      } else {
+        conditions.push({ ai_enabled: false });
+      }
+    }
+
+    const filter =
+      conditions.length === 1
+        ? conditions[0]
+        : conditions.length > 1
+          ? { $and: conditions }
+          : {};
+
     return this.chatRepo.findAll(filter, dto.page, dto.limit);
   }
 
   async getStats(organizationId?: string) {
     this.logger.debug(`Getting chat stats for org=${organizationId || 'all'}`);
-    const filter: Record<string, any> = {};
-    if (organizationId) filter.organizationId = organizationId;
+    const baseFilter: Record<string, any> = {};
+    if (organizationId) baseFilter.organizationId = organizationId;
 
     const [all, cold, warm, hot, aiEnabled, aiDisabled] =
       await Promise.all([
-        this.chatRepo.count(filter),
-        this.chatRepo.count({ ...filter, status: ChatStatus.COLD }),
-        this.chatRepo.count({ ...filter, status: ChatStatus.WARM }),
-        this.chatRepo.count({ ...filter, status: ChatStatus.HOT }),
-        this.chatRepo.count({ ...filter, ai_enabled: true }),
-        this.chatRepo.count({ ...filter, ai_enabled: false }),
+        this.chatRepo.count(baseFilter),
+        this.chatRepo.count({
+          ...baseFilter,
+          $or: [
+            { status: ChatStatus.COLD },
+            { status: 'AI_PROCESSING' },
+            { status: { $exists: false } },
+            { status: null },
+          ],
+        }),
+        this.chatRepo.count({ ...baseFilter, status: ChatStatus.WARM }),
+        this.chatRepo.count({ ...baseFilter, status: ChatStatus.HOT }),
+        this.chatRepo.count({
+          ...baseFilter,
+          $or: [
+            { ai_enabled: true },
+            { ai_enabled: { $exists: false } },
+            { ai_enabled: null },
+          ],
+        }),
+        this.chatRepo.count({ ...baseFilter, ai_enabled: false }),
       ]);
 
     return {
