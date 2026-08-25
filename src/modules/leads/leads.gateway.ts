@@ -46,33 +46,20 @@ export class LeadsGateway {
     return this.leadsService.findAll(dto);
   }
 
-  private async resolveLead(data: any): Promise<any | null> {
-    if (!data) return null;
-    if (typeof data === 'string') {
-      return this.leadsService.findOne(data).catch(() => null);
-    }
-    const targetLeadId = data.leadId || data.id || data._id;
-    if (targetLeadId) {
-      const lead = await this.leadsService
-        .findOne(targetLeadId)
-        .catch(() => null);
-      if (lead) return lead;
-    }
-    if (data.chatId) {
-      return this.leadsService.findByChatId(data.chatId).catch(() => null);
-    }
-    return null;
-  }
-
   @SubscribeMessage('lead:get')
   async handleLeadGet(
-    @MessageBody() data: any,
+    @MessageBody() data: { leadId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const leadId = data?.leadId;
+    if (!leadId) {
+      throw new WsException('leadId is required');
+    }
+
     this.logger.debug(
-      `[WS lead:get] User ${client.user.email}, Payload: ${JSON.stringify(data)}`,
+      `[WS lead:get] User ${client.user.email}, LeadId: ${leadId}`,
     );
-    const lead = await this.resolveLead(data);
+    const lead = await this.leadsService.findOne(leadId);
     if (!lead) {
       throw new WsException('Lead not found');
     }
@@ -90,23 +77,13 @@ export class LeadsGateway {
   @SubscribeMessage('lead:update')
   @UsePipes(WsValidationPipe)
   async handleLeadUpdate(
-    @MessageBody() data: any,
+    @MessageBody()
+    data: { leadId: string; dto?: UpdateLeadDto } & UpdateLeadDto,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    this.logger.log(
-      `[WS lead:update] User ${client.user.email} -> Payload: ${JSON.stringify(data)}`,
-    );
-    const lead = await this.resolveLead(data);
-    if (!lead) {
-      throw new WsException('Lead not found');
-    }
-
-    const isAdmin = client.user.role === UserRole.ADMIN;
-    if (
-      !isAdmin &&
-      lead.organizationId.toString() !== client.user.organizationId
-    ) {
-      throw new WsException('Access denied to lead from another organization');
+    const leadId = data?.leadId;
+    if (!leadId) {
+      throw new WsException('leadId is required');
     }
 
     const dto: UpdateLeadDto = data?.dto || {
@@ -115,19 +92,10 @@ export class LeadsGateway {
       data: data?.data,
     };
 
-    const updated = await this.leadsService.update(lead._id.toString(), dto);
-    return updated;
-  }
-
-  @SubscribeMessage('lead:delete')
-  async handleLeadDelete(
-    @MessageBody() data: any,
-    @ConnectedSocket() client: AuthenticatedSocket,
-  ) {
     this.logger.log(
-      `[WS lead:delete] User ${client.user.email} -> Payload: ${JSON.stringify(data)}`,
+      `[WS lead:update] User ${client.user.email} -> Lead ${leadId}, DTO: ${JSON.stringify(dto)}`,
     );
-    const lead = await this.resolveLead(data);
+    const lead = await this.leadsService.findOne(leadId);
     if (!lead) {
       throw new WsException('Lead not found');
     }
@@ -139,7 +107,37 @@ export class LeadsGateway {
     ) {
       throw new WsException('Access denied to lead from another organization');
     }
-    return this.leadsService.delete(lead._id.toString(), lead.organizationId.toString());
+
+    const updated = await this.leadsService.update(leadId, dto);
+    return updated;
+  }
+
+  @SubscribeMessage('lead:delete')
+  async handleLeadDelete(
+    @MessageBody() data: { leadId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const leadId = data?.leadId;
+    if (!leadId) {
+      throw new WsException('leadId is required');
+    }
+
+    this.logger.log(
+      `[WS lead:delete] User ${client.user.email} -> Lead ${leadId}`,
+    );
+    const lead = await this.leadsService.findOne(leadId);
+    if (!lead) {
+      throw new WsException('Lead not found');
+    }
+
+    const isAdmin = client.user.role === UserRole.ADMIN;
+    if (
+      !isAdmin &&
+      lead.organizationId.toString() !== client.user.organizationId
+    ) {
+      throw new WsException('Access denied to lead from another organization');
+    }
+    return this.leadsService.delete(leadId, lead.organizationId.toString());
   }
 
   // ── Event-driven broadcasts ───────────────────────────────────
