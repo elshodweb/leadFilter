@@ -358,7 +358,18 @@ export class ChatsService implements OnModuleInit {
       chat.ai_enabled = false;
     }
 
-    // 4. Save as HUMAN message
+    // 4. Save as HUMAN message (with deduplication check)
+    if (externalMessageId) {
+      const existingMsg =
+        await this.messagesService.findByExternalMessageId(externalMessageId);
+      if (existingMsg) {
+        this.logger.warn(
+          `[Echo Pipeline] Duplicate echo message with MID "${externalMessageId}". Skipping.`,
+        );
+        return { chat, message: existingMsg };
+      }
+    }
+
     const humanMsg = await this.messagesService.saveHumanMessage(
       organizationId,
       chat._id.toString(),
@@ -441,13 +452,27 @@ export class ChatsService implements OnModuleInit {
     // 1.1 Enrich Instagram customer profile if missing
     this.enrichInstagramProfile(organizationId, chat);
 
-    // 2. Save incoming message
-    const incomingMsg = await this.messagesService.saveIncoming(
-      organizationId,
-      chat._id.toString(),
-      content,
-      externalMessageId,
-    );
+    // 2. Save incoming message (with deduplication check)
+    const { doc: incomingMsg, isDuplicate } =
+      await this.messagesService.saveIncoming(
+        organizationId,
+        chat._id.toString(),
+        content,
+        externalMessageId,
+      );
+
+    if (isDuplicate) {
+      this.logger.warn(
+        `[Pipeline] Duplicate message received from Meta webhook (MID: ${externalMessageId}). Skipping duplicate emit and AI processing.`,
+      );
+      return {
+        chat,
+        message: incomingMsg,
+        aiReply: null,
+        lead: null,
+      };
+    }
+
     this.logger.debug(`[Pipeline] Incoming message saved: ${incomingMsg._id}`);
     this.eventEmitter.emit('message.new', incomingMsg);
 

@@ -48,6 +48,15 @@ export class MessageRepository {
       .lean() as Promise<MessageDocument[]>;
   }
 
+  async findByExternalMessageId(
+    externalMessageId: string,
+  ): Promise<MessageDocument | null> {
+    if (!externalMessageId) return null;
+    return this.model
+      .findOne({ externalMessageId })
+      .lean() as Promise<MessageDocument | null>;
+  }
+
   async deleteByChatId(chatId: string): Promise<any> {
     return this.model.deleteMany({ chatId });
   }

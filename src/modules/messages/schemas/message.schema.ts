@@ -57,3 +57,4 @@ export class Message {
 export const MessageSchema = SchemaFactory.createForClass(Message);
 MessageSchema.index({ chatId: 1, sentAt: 1 });
 MessageSchema.index({ organizationId: 1 });
+MessageSchema.index({ externalMessageId: 1 }, { unique: true, sparse: true });

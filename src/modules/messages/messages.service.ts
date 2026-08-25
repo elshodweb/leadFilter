@@ -13,26 +13,53 @@ export class MessagesService {
 
   constructor(private readonly repo: MessageRepository) {}
 
-  saveIncoming(
+  async saveIncoming(
     organizationId: string,
     chatId: string,
     content: string,
     externalMessageId?: string,
   ) {
+    if (externalMessageId) {
+      const existing = await this.repo.findByExternalMessageId(externalMessageId);
+      if (existing) {
+        this.logger.warn(
+          `[saveIncoming] Message with externalMessageId "${externalMessageId}" already exists. Skipping duplicate.`,
+        );
+        return { doc: existing, isDuplicate: true };
+      }
+    }
+
     this.logger.debug(
       `Saving incoming message for chat ${chatId}: "${content.substring(0, 30)}..."`,
     );
-    return this.repo.create({
-      organizationId: organizationId as any,
-      chatId: chatId as any,
-      direction: MessageDirection.INCOMING,
-      senderType: MessageSenderType.CUSTOMER,
-      type: MessageType.TEXT,
-      content,
-      status: MessageStatus.RECEIVED,
-      externalMessageId,
-      sentAt: new Date(),
-    });
+    try {
+      const doc = await this.repo.create({
+        organizationId: organizationId as any,
+        chatId: chatId as any,
+        direction: MessageDirection.INCOMING,
+        senderType: MessageSenderType.CUSTOMER,
+        type: MessageType.TEXT,
+        content,
+        status: MessageStatus.RECEIVED,
+        externalMessageId,
+        sentAt: new Date(),
+      });
+      return { doc, isDuplicate: false };
+    } catch (err: any) {
+      if (err?.code === 11000 && externalMessageId) {
+        // Mongo duplicate key error on externalMessageId
+        this.logger.warn(
+          `[saveIncoming] Concurrent duplicate insert caught for externalMessageId "${externalMessageId}".`,
+        );
+        const existing = await this.repo.findByExternalMessageId(externalMessageId);
+        return { doc: existing!, isDuplicate: true };
+      }
+      throw err;
+    }
+  }
+
+  findByExternalMessageId(externalMessageId: string) {
+    return this.repo.findByExternalMessageId(externalMessageId);
   }
 
   saveAiReply(organizationId: string, chatId: string, content: string) {
