@@ -159,7 +159,12 @@ export class AnalyticsService {
     const savedTimeSeconds = aiMessagesCount * this.SECONDS_PER_AI_MESSAGE;
     const savedTimeMinutes = Number((savedTimeSeconds / 60).toFixed(1));
     const savedTimeHours = Number((savedTimeSeconds / 3600).toFixed(1));
-    const savedTimeHoursRounded = Math.round(savedTimeHours);
+
+    // Format as hh:mm:ss (e.g. "00:42:30")
+    const hrs = Math.floor(savedTimeSeconds / 3600);
+    const mins = Math.floor((savedTimeSeconds % 3600) / 60);
+    const secs = savedTimeSeconds % 60;
+    const formattedDuration = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
     const savedCostAmount = Math.round(
       (savedTimeSeconds / 3600) * this.HOURLY_OPERATOR_RATE,
@@ -237,17 +242,17 @@ export class AnalyticsService {
           seconds: savedTimeSeconds,
           minutes: savedTimeMinutes,
           hours: savedTimeHours,
-          formatted: `${savedTimeHoursRounded} soat`,
+          formatted: formattedDuration,
           title: 'TEJALGAN OPERATOR VAQTI',
           subtitle: 'AI yozgan xabarlarni odam yozganda ketadigan vaqt',
-          calculation: `${aiMessagesCount} xabar × ${this.SECONDS_PER_AI_MESSAGE} soniya = ${savedTimeHours} soat`,
+          calculation: `${aiMessagesCount} xabar × ${this.SECONDS_PER_AI_MESSAGE} soniya = ${formattedDuration}`,
         },
         savedCost: {
           amount: savedCostAmount,
           formatted: savedCostFormatted,
           hourlyRate: this.HOURLY_OPERATOR_RATE,
           title: 'TAXMINAN TEJALSAN XARAJAT',
-          subtitle: `${savedTimeHoursRounded} soat × ${this.HOURLY_OPERATOR_RATE.toLocaleString()} so'm/soat`,
+          subtitle: `${formattedDuration} × ${this.HOURLY_OPERATOR_RATE.toLocaleString()} so'm/soat`,
         },
         aiAvgResponseTime: {
           seconds: avgLatencySeconds,
