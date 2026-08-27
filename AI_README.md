@@ -184,8 +184,10 @@ Incoming Customer Message
    - LeadQuestions, CompanyInformation, AdditionalInformation
 6. Load last 20 messages for conversational history
 7. Call OpenAI with structured JSON output:
+   - Primary Mission: Create a "HOT LEAD" by actively engaging interest in company services.
+   - Golden Rule: Always ANSWER customer questions FIRST using Company & Additional Information, then bridge to collecting the next missing LeadQuestion.
    - Context: Company Information + Additional Rules + Lead Questions + Collected Data
-   - Response: { reply: string, collectedData: Record<string, any>, isComplete: boolean }
+   - Response: { reply: string, collectedData: Record<string, any>, isComplete: boolean, handoverToOperator: boolean, handoverReason: string }
 8. Save AI Message (direction: OUTGOING, senderType: ASSISTENT)
    - Emit 'message.ai' (broadcasts to chat room and org room)
 9. Operator Handover & AI Disabling Check:
