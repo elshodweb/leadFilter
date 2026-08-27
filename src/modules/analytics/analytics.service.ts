@@ -43,8 +43,8 @@ export class AnalyticsService {
     }
 
     // Build Date Filter
-    const rawStart = filterDto.startDate || filterDto.start;
-    const rawEnd = filterDto.endDate || filterDto.end;
+    const rawStart = filterDto.startDate;
+    const rawEnd = filterDto.endDate;
 
     const dateFilter: Record<string, any> = {};
     if (rawStart) {
