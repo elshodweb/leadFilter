@@ -113,10 +113,14 @@ export class ChatRepository {
     chatId: string,
     data: any[],
     status?: ChatStatus,
+    ai_enabled?: boolean,
   ): Promise<ChatDocument | null> {
     const update: any = { collectedData: data };
     if (status) {
       update.status = status;
+    }
+    if (ai_enabled !== undefined) {
+      update.ai_enabled = ai_enabled;
     }
     const doc = await this.model
       .findByIdAndUpdate(

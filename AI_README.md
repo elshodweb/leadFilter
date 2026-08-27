@@ -188,8 +188,13 @@ Incoming Customer Message
    - Response: { reply: string, collectedData: Record<string, any>, isComplete: boolean }
 8. Save AI Message (direction: OUTGOING, senderType: ASSISTENT)
    - Emit 'message.ai' (broadcasts to chat room and org room)
-9. Update Chat.collectedData with new extracted values
-10. If isComplete === true (all LeadQuestions have non-null answers):
+9. Operator Handover & AI Disabling Check:
+   - If AI returned handoverToOperator: true (or customer explicitly asks for human operator):
+     - Operator Request ("оператор", "менеджер", "человек", "operatorga ulang"): AI acknowledges and sets ai_enabled = false.
+     - Difficult/Complex/Serious Off-Topic Question: AI politely transfers to manager and sets ai_enabled = false.
+     - Light Joke / Humor / Friendly Banter: AI continues chatting with charm/wit and keeps ai_enabled = true.
+10. Update Chat.collectedData with new extracted values, status (COLD/WARM/HOT), and ai_enabled
+11. If isComplete === true (all LeadQuestions have non-null answers):
     - Check if Lead already exists for this chatId
     - If not, create Lead (status: 'NEW', order: nextOrder, data: collectedData)
     - Emit 'lead.new' (broadcasts 'lead:new' to org room)

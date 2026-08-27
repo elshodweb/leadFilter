@@ -729,7 +729,22 @@ export class ChatsService implements OnModuleInit {
       }
     }
 
-    // 9. Update lastMessage with AI reply, collectedData and status (COLD / WARM / HOT)
+    // 9. Update lastMessage with AI reply, collectedData, status, and handle operator handover
+    const explicitOperatorRegex =
+      /\b(оператор|оператора|оператором|менеджер|менеджера|менеджером|человек|человека|operator|operatorga|operatori|menedjer|menedjerga|odam)\b/i;
+    const isExplicitOperatorRequest = explicitOperatorRegex.test(content);
+
+    const shouldDisableAi =
+      aiResponse.handoverToOperator === true || isExplicitOperatorRequest;
+
+    let targetAiEnabled: boolean = chat.ai_enabled;
+    if (shouldDisableAi) {
+      targetAiEnabled = false;
+      this.logger.warn(
+        `[Pipeline] Handing over chat ${chat._id} to human operator! Reason: ${aiResponse.handoverReason || (isExplicitOperatorRequest ? 'OPERATOR_REQUESTED' : 'COMPLEX_OR_OUT_OF_CONTEXT')} -> Setting ai_enabled = false`,
+      );
+    }
+
     const newStatus = this.calculateChatStatus(
       aiResponse.collectedData,
       aiResponse.isComplete,
@@ -744,6 +759,7 @@ export class ChatsService implements OnModuleInit {
       chat._id.toString(),
       aiResponse.collectedData,
       newStatus,
+      targetAiEnabled,
     );
     if (updatedChat) {
       this.eventEmitter.emit('chat.updated', updatedChat);
@@ -897,7 +913,15 @@ export class ChatsService implements OnModuleInit {
       }
     }
 
-    // 5. Update lastMessage, collectedData, and status (COLD / WARM / HOT)
+    // 5. Update lastMessage, collectedData, status, and handle operator handover
+    let targetAiEnabled: boolean = chat.ai_enabled;
+    if (aiResponse.handoverToOperator === true) {
+      targetAiEnabled = false;
+      this.logger.warn(
+        `[triggerAiForChat] Handing over chat ${chatId} to human operator! Reason: ${aiResponse.handoverReason || 'COMPLEX_OR_OUT_OF_CONTEXT'} -> Setting ai_enabled = false`,
+      );
+    }
+
     const newStatus = this.calculateChatStatus(
       aiResponse.collectedData,
       aiResponse.isComplete,
@@ -912,6 +936,7 @@ export class ChatsService implements OnModuleInit {
       chatId,
       aiResponse.collectedData,
       newStatus,
+      targetAiEnabled,
     );
     if (updatedChat) {
       this.eventEmitter.emit('chat.updated', updatedChat);

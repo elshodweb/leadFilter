@@ -4,4 +4,6 @@ export interface AiResponseDto {
   reply: string;
   collectedData: CollectedDataItem[];
   isComplete: boolean;
+  handoverToOperator?: boolean;
+  handoverReason?: string | null;
 }
