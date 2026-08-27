@@ -31,8 +31,15 @@ export class AnalyticsService {
     const organizationId = filterDto.organizationId || authOrgId;
     const orgFilter: Record<string, any> = {};
 
-    if (organizationId && Types.ObjectId.isValid(organizationId)) {
-      orgFilter.organizationId = new Types.ObjectId(organizationId);
+    if (organizationId) {
+      const orgIdStr = organizationId.toString();
+      if (Types.ObjectId.isValid(orgIdStr)) {
+        orgFilter.organizationId = {
+          $in: [orgIdStr, new Types.ObjectId(orgIdStr)],
+        };
+      } else {
+        orgFilter.organizationId = orgIdStr;
+      }
     }
 
     // Build Date Filter
@@ -49,7 +56,11 @@ export class AnalyticsService {
     if (rawEnd) {
       const endDate = new Date(rawEnd);
       if (!isNaN(endDate.getTime())) {
-        if (rawEnd.length === 10) {
+        if (
+          rawEnd.length === 10 ||
+          rawEnd.endsWith('T00:00:00.000Z') ||
+          rawEnd.endsWith('T00:00:00Z')
+        ) {
           endDate.setHours(23, 59, 59, 999);
         }
         dateFilter.$lte = endDate;
@@ -58,7 +69,9 @@ export class AnalyticsService {
 
     const hasDateFilter = Object.keys(dateFilter).length > 0;
     const createdAtFilter = hasDateFilter ? { createdAt: dateFilter } : {};
-    const sentAtFilter = hasDateFilter ? { sentAt: dateFilter } : {};
+    const msgDateFilter = hasDateFilter
+      ? { $or: [{ createdAt: dateFilter }, { sentAt: dateFilter }] }
+      : {};
 
     this.logger.debug(
       `Calculating KPI for org=${organizationId || 'ALL'}, dateRange=${JSON.stringify(dateFilter)}`,
@@ -125,21 +138,21 @@ export class AnalyticsService {
       this.messageModel.countDocuments({
         ...orgFilter,
         senderType: MessageSenderType.ASSISTENT,
-        ...sentAtFilter,
+        ...msgDateFilter,
       }),
       this.messageModel.countDocuments({
         ...orgFilter,
         senderType: MessageSenderType.HUMAN,
-        ...sentAtFilter,
+        ...msgDateFilter,
       }),
       this.messageModel.countDocuments({
         ...orgFilter,
         senderType: MessageSenderType.CUSTOMER,
-        ...sentAtFilter,
+        ...msgDateFilter,
       }),
 
       // Average Response Time
-      this.calculateAverageResponseTime(orgFilter, sentAtFilter),
+      this.calculateAverageResponseTime(orgFilter, msgDateFilter),
     ]);
 
     // AI Impact Calculations
@@ -275,7 +288,7 @@ export class AnalyticsService {
 
   private async calculateAverageResponseTime(
     orgFilter: Record<string, any>,
-    sentAtFilter: Record<string, any>,
+    msgDateFilter: Record<string, any>,
   ): Promise<number> {
     try {
       // Find sample of recent AI messages and their preceding customer message to calculate latency
@@ -283,9 +296,9 @@ export class AnalyticsService {
         .find({
           ...orgFilter,
           senderType: MessageSenderType.ASSISTENT,
-          ...sentAtFilter,
+          ...msgDateFilter,
         })
-        .sort({ sentAt: -1 })
+        .sort({ sentAt: -1, createdAt: -1 })
         .limit(100)
         .select('chatId sentAt createdAt')
         .lean();
