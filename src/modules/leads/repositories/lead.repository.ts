@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Lead, LeadDocument, LeadStatus } from '../schemas/lead.schema';
+import { Lead, LeadDocument, LeadStatus, LeadType } from '../schemas/lead.schema';
 import {
   PaginatedResult,
   createPaginatedResponse,
@@ -15,9 +15,13 @@ export class LeadRepository {
     private readonly model: Model<LeadDocument>,
   ) {}
 
-  async getNextOrder(organizationId: string, status: LeadStatus): Promise<number> {
+  async getNextOrder(
+    organizationId: string,
+    status: LeadStatus,
+    type: LeadType = LeadType.HOT,
+  ): Promise<number> {
     const highest = await this.model
-      .findOne({ organizationId, status })
+      .findOne({ organizationId, status, type })
       .sort({ order: -1 })
       .select('order')
       .lean();
@@ -26,12 +30,14 @@ export class LeadRepository {
 
   async create(data: Partial<Lead>): Promise<LeadDocument> {
     const status = data.status || LeadStatus.NEW;
+    const type = data.type || LeadType.HOT;
     const nextOrder =
       data.order ||
-      (await this.getNextOrder(data.organizationId!.toString(), status));
+      (await this.getNextOrder(data.organizationId!.toString(), status, type));
     return this.model.create({
       ...data,
       status,
+      type,
       order: nextOrder,
     });
   }
@@ -51,6 +57,42 @@ export class LeadRepository {
       this.model.countDocuments(filter),
     ]);
     return createPaginatedResponse(data as LeadDocument[], total, page, limit);
+  }
+
+  async findKanban(
+    organizationId: string,
+    type: LeadType,
+  ): Promise<{
+    type: LeadType;
+    columns: Record<LeadStatus, LeadDocument[]>;
+    total: number;
+  }> {
+    const leads = await this.model
+      .find({ organizationId, type })
+      .sort({ order: 1, createdAt: -1 })
+      .lean();
+
+    const columns: Record<LeadStatus, any[]> = {
+      [LeadStatus.NEW]: [],
+      [LeadStatus.IN_PROGRESS]: [],
+      [LeadStatus.WON]: [],
+      [LeadStatus.LOST]: [],
+    };
+
+    for (const lead of leads) {
+      const status = (lead.status as LeadStatus) || LeadStatus.NEW;
+      if (columns[status]) {
+        columns[status].push(lead);
+      } else {
+        columns[LeadStatus.NEW].push(lead);
+      }
+    }
+
+    return {
+      type,
+      columns,
+      total: leads.length,
+    };
   }
 
   async findById(id: string): Promise<LeadDocument | null> {
@@ -73,8 +115,14 @@ export class LeadRepository {
     if (!target) return null;
 
     const orgId = target.organizationId.toString();
+    const leadType = dto.type !== undefined ? dto.type : (target.type || LeadType.HOT);
     const oldStatus = target.status;
     const oldOrder = target.order || 1;
+
+    // Update type if provided
+    if (dto.type !== undefined) {
+      target.type = dto.type;
+    }
 
     // 1. Update data if provided
     if (dto.data !== undefined) {
@@ -89,6 +137,7 @@ export class LeadRepository {
       const newStatus = dto.status!;
       const countNewStatus = await this.model.countDocuments({
         organizationId: orgId,
+        type: leadType,
         status: newStatus,
       });
 
@@ -102,6 +151,7 @@ export class LeadRepository {
       await this.model.updateMany(
         {
           organizationId: orgId,
+          type: leadType,
           status: oldStatus,
           _id: { $ne: target._id },
           order: { $gt: oldOrder },
@@ -113,6 +163,7 @@ export class LeadRepository {
       await this.model.updateMany(
         {
           organizationId: orgId,
+          type: leadType,
           status: newStatus,
           _id: { $ne: target._id },
           order: { $gte: targetOrder },
@@ -126,6 +177,7 @@ export class LeadRepository {
       // Reordering within the SAME status column
       const countSameStatus = await this.model.countDocuments({
         organizationId: orgId,
+        type: leadType,
         status: oldStatus,
       });
       const targetOrder = Math.max(1, Math.min(dto.order!, countSameStatus));
@@ -135,6 +187,7 @@ export class LeadRepository {
         await this.model.updateMany(
           {
             organizationId: orgId,
+            type: leadType,
             status: oldStatus,
             _id: { $ne: target._id },
             order: { $gte: targetOrder, $lt: oldOrder },
@@ -146,6 +199,7 @@ export class LeadRepository {
         await this.model.updateMany(
           {
             organizationId: orgId,
+            type: leadType,
             status: oldStatus,
             _id: { $ne: target._id },
             order: { $gt: oldOrder, $lte: targetOrder },
@@ -165,6 +219,7 @@ export class LeadRepository {
     if (!target) return null;
 
     const orgId = target.organizationId.toString();
+    const leadType = target.type || LeadType.HOT;
     const deletedStatus = target.status;
     const deletedOrder = target.order || 1;
 
@@ -174,6 +229,7 @@ export class LeadRepository {
     await this.model.updateMany(
       {
         organizationId: orgId,
+        type: leadType,
         status: deletedStatus,
         order: { $gt: deletedOrder },
       },

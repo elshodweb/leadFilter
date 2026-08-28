@@ -17,6 +17,7 @@ import {
 import { LeadsService } from './leads.service';
 import { ListLeadsDto } from './dto/list-leads.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
+import { GetKanbanLeadsDto } from './dto/get-kanban-leads.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/schemas/user.schema';
 import type { AuthenticatedRequest } from '../../common/interfaces/auth.interface';
@@ -31,7 +32,7 @@ export class LeadsController {
   @Get()
   @ApiOperation({
     summary:
-      'List leads (Admin can filter by organizationId or view all)',
+      'List leads (Admin can filter by organizationId, type, status or view all)',
   })
   findAll(@Req() req: AuthenticatedRequest, @Query() dto: ListLeadsDto) {
     const isAdmin = req.user.role === UserRole.ADMIN;
@@ -39,6 +40,23 @@ export class LeadsController {
       dto.organizationId = req.user.organizationId;
     }
     return this.svc.findAll(dto);
+  }
+
+  @Get('kanban')
+  @ApiOperation({
+    summary:
+      'Get leads for Kanban board with required type filter (WARM or HOT)',
+  })
+  getKanban(
+    @Req() req: AuthenticatedRequest,
+    @Query() dto: GetKanbanLeadsDto,
+  ) {
+    const isAdmin = req.user.role === UserRole.ADMIN;
+    const orgId =
+      isAdmin && dto.organizationId
+        ? dto.organizationId
+        : req.user.organizationId;
+    return this.svc.getKanban(orgId, dto.type);
   }
 
   @Get(':id')
@@ -49,7 +67,7 @@ export class LeadsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update lead status, order or data (Admin)' })
+  @ApiOperation({ summary: 'Update lead status, order, type or data (Admin)' })
   @ApiParam({ name: 'id' })
   update(@Param('id') id: string, @Body() dto: UpdateLeadDto) {
     return this.svc.update(id, dto);

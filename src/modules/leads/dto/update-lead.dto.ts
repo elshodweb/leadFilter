@@ -1,8 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
-import { LeadStatus } from '../schemas/lead.schema';
+import { LeadStatus, LeadType } from '../schemas/lead.schema';
 
 export class UpdateLeadDto {
+  @ApiPropertyOptional({ enum: LeadType, description: 'Lead type (WARM or HOT)' })
+  @IsOptional()
+  @IsEnum(LeadType)
+  type?: LeadType;
+
   @ApiPropertyOptional({ enum: LeadStatus })
   @IsOptional()
   @IsEnum(LeadStatus)

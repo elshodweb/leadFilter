@@ -3,6 +3,11 @@ import { Document, Types } from 'mongoose';
 
 export type LeadDocument = Lead & Document;
 
+export enum LeadType {
+  WARM = 'WARM',
+  HOT = 'HOT',
+}
+
 export enum LeadStatus {
   NEW = 'NEW',
   IN_PROGRESS = 'IN_PROGRESS',
@@ -18,6 +23,9 @@ export class Lead {
   @Prop({ type: Types.ObjectId, ref: 'Chat', required: true, unique: true })
   chatId: Types.ObjectId;
 
+  @Prop({ enum: LeadType, default: LeadType.HOT, index: true })
+  type: LeadType;
+
   @Prop({ enum: LeadStatus, default: LeadStatus.NEW })
   status: LeadStatus;
 
@@ -29,4 +37,4 @@ export class Lead {
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);
-LeadSchema.index({ organizationId: 1, status: 1, order: 1 });
+LeadSchema.index({ organizationId: 1, type: 1, status: 1, order: 1 });

@@ -11,6 +11,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { LeadsService } from './leads.service';
 import { ListLeadsDto } from './dto/list-leads.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
+import { GetKanbanLeadsDto } from './dto/get-kanban-leads.dto';
 import { WsValidationPipe } from '../../common/pipes/ws-validation.pipe';
 import { WsExceptionFilter } from '../../common/filters/ws-exception.filter';
 import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
@@ -44,6 +45,25 @@ export class LeadsGateway {
       `[WS lead:list] User ${client.user.email} (Org: ${dto.organizationId || 'ALL'}, Page: ${dto.page || 1})`,
     );
     return this.leadsService.findAll(dto);
+  }
+
+  @SubscribeMessage('lead:kanban')
+  @UsePipes(WsValidationPipe)
+  handleLeadKanban(
+    @MessageBody() dto: GetKanbanLeadsDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    dto = dto || ({} as any);
+    const isAdmin = client.user.role === UserRole.ADMIN;
+    const orgId =
+      isAdmin && dto.organizationId
+        ? dto.organizationId
+        : client.user.organizationId;
+
+    this.logger.debug(
+      `[WS lead:kanban] User ${client.user.email} (Org: ${orgId}, Type: ${dto.type})`,
+    );
+    return this.leadsService.getKanban(orgId, dto.type);
   }
 
   private parsePayload(data: any): any {

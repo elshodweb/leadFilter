@@ -86,15 +86,12 @@ export class WebhookController {
         const isEcho = messaging.message?.is_echo;
         const text = messaging.message?.text;
         const externalMessageId = messaging.message?.mid;
-
-        if (!text) {
-          this.logger.debug(
-            `Skipping messaging event with missing text: ${JSON.stringify(messaging)}`,
-          );
-          continue;
-        }
+        const attachments = messaging.message?.attachments;
 
         if (isEcho) {
+          if (!text) {
+            continue;
+          }
           // Message typed by human operator from Instagram mobile app or Meta Business Suite
           // In echo messages, recipient.id is the customer
           const customerChatId = messaging.recipient?.id;
@@ -126,18 +123,58 @@ export class WebhookController {
             continue;
           }
 
-          this.logger.log(
-            `[Instagram Customer Message] Org: "${org.name}" (${organizationId}) | Sender: ${customerUserId} | MID: ${externalMessageId} | Text: "${text}"`,
-          );
+          if (text) {
+            this.logger.log(
+              `[Instagram Customer Message] Org: "${org.name}" (${organizationId}) | Sender: ${customerUserId} | MID: ${externalMessageId} | Text: "${text}"`,
+            );
 
-          await this.chatsService.handleIncomingMessage({
-            organizationId,
-            channel: ChatChannel.INSTAGRAM,
-            externalChatId: customerUserId,
-            externalUserId: customerUserId,
-            content: text,
-            externalMessageId,
-          });
+            await this.chatsService.handleIncomingMessage({
+              organizationId,
+              channel: ChatChannel.INSTAGRAM,
+              externalChatId: customerUserId,
+              externalUserId: customerUserId,
+              content: text,
+              externalMessageId,
+            });
+          } else if (attachments && attachments.length > 0) {
+            // Customer sent non-text attachment (voice note, photo, video, file, etc.)
+            let placeholder = '[Media xabar]';
+            const attType = attachments[0]?.type;
+            if (attType === 'audio') placeholder = '[Ovozli xabar]';
+            else if (attType === 'image') placeholder = '[Rasm]';
+            else if (attType === 'video') placeholder = '[Video]';
+            else if (attType === 'file') placeholder = '[Fayl]';
+
+            this.logger.log(
+              `[Instagram Customer Non-Text Attachment] Org: "${org.name}" (${organizationId}) | Sender: ${customerUserId} | MID: ${externalMessageId} | Type: ${placeholder}`,
+            );
+
+            await this.chatsService.handleIncomingNonTextMessage({
+              organizationId,
+              channel: ChatChannel.INSTAGRAM,
+              externalChatId: customerUserId,
+              externalUserId: customerUserId,
+              content: placeholder,
+              externalMessageId,
+            });
+          } else if (messaging.message?.sticker_id) {
+            this.logger.log(
+              `[Instagram Customer Sticker] Org: "${org.name}" (${organizationId}) | Sender: ${customerUserId} | MID: ${externalMessageId}`,
+            );
+
+            await this.chatsService.handleIncomingNonTextMessage({
+              organizationId,
+              channel: ChatChannel.INSTAGRAM,
+              externalChatId: customerUserId,
+              externalUserId: customerUserId,
+              content: '[Stiker]',
+              externalMessageId,
+            });
+          } else {
+            this.logger.debug(
+              `Skipping unrecognized messaging event: ${JSON.stringify(messaging)}`,
+            );
+          }
         }
       }
     }

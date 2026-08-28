@@ -4,7 +4,7 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
-import type { LeadDocument } from '../leads/schemas/lead.schema';
+import { LeadType, type LeadDocument } from '../leads/schemas/lead.schema';
 import type { LeadQuestionDocument } from '../knowledge/schemas/lead-question.schema';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ChatRepository } from './repositories/chat.repository';
@@ -518,6 +518,139 @@ export class ChatsService implements OnModuleInit {
   }
 
   /**
+   * Handles non-text customer messages (voice note, photo, video, document, etc.)
+   * Immediately replies requesting text format: "Iltimos, xabaringizni matn ko'rinishida yozsangiz."
+   */
+  async handleIncomingNonTextMessage(params: {
+    organizationId: string;
+    channel: ChatChannel;
+    externalChatId: string;
+    externalUserId: string;
+    content: string;
+    externalMessageId?: string;
+  }) {
+    const {
+      organizationId,
+      channel,
+      externalChatId,
+      externalUserId,
+      content,
+      externalMessageId,
+    } = params;
+
+    this.logger.log(
+      `[Non-Text Message Pipeline] Org: ${organizationId} | Channel: ${channel} | ExternalChat: ${externalChatId} | Type: ${content}`,
+    );
+
+    // 1. Load lead questions to initialize collectedData for new chats
+    const { leadQuestions } =
+      await this.knowledgeService.loadAiContext(organizationId);
+
+    const initialCollectedData = (leadQuestions || [])
+      .sort((a, b) => a.order - b.order)
+      .map((q) => ({
+        id: q._id.toString(),
+        title: q.title,
+        value: null,
+      }));
+
+    // 2. Find or create chat
+    const { doc: chat, created } = await this.chatRepo.findOrCreate(
+      organizationId,
+      externalChatId,
+      {
+        channel,
+        externalUserId,
+        status: ChatStatus.COLD,
+        ai_enabled: true,
+        collectedData: initialCollectedData,
+      },
+    );
+
+    if (created) {
+      this.logger.log(`[Non-Text Pipeline] New Chat created: ${chat._id}`);
+      this.eventEmitter.emit('chat.new', chat);
+    }
+    this.enrichInstagramProfile(organizationId, chat);
+
+    // 3. Save incoming non-text message
+    const { doc: incomingMsg, isDuplicate } =
+      await this.messagesService.saveIncoming(
+        organizationId,
+        chat._id.toString(),
+        content,
+        externalMessageId,
+      );
+
+    if (isDuplicate) {
+      return { chat, message: incomingMsg, aiReply: null, lead: null };
+    }
+
+    this.eventEmitter.emit('message.new', incomingMsg);
+    await this.chatRepo.updateLastMessage(
+      chat._id.toString(),
+      content,
+      new Date(),
+    );
+
+    // 4. If AI is enabled, auto-reply asking to send text
+    if (chat.ai_enabled !== false) {
+      const replyText = "Iltimos, xabaringizni matn ko'rinishida yozsangiz.";
+
+      const aiMsg = await this.messagesService.saveAiReply(
+        organizationId,
+        chat._id.toString(),
+        replyText,
+      );
+      this.markPlatformMessageSent(chat._id.toString(), replyText);
+      this.eventEmitter.emit('message.ai', aiMsg);
+      this.eventEmitter.emit('message.new', aiMsg);
+
+      // Deliver to Instagram
+      if (chat.channel === ChatChannel.INSTAGRAM) {
+        const org = await this.orgsService.findOne(organizationId);
+        if (org?.instagramAccessToken) {
+          this.instagramService
+            .sendTextMessage({
+              accessToken: org.instagramAccessToken,
+              businessAccountId: org.instagramBusinessAccountId,
+              apiBaseUrl: org.instagramApiBaseUrl,
+              apiVersion: org.metaGraphApiVersion,
+              recipientId: chat.externalChatId,
+              text: replyText,
+            })
+            .then(async (result) => {
+              if (result.success && result.messageId && aiMsg?._id) {
+                await this.messagesService.updateExternalMessageId(
+                  aiMsg._id.toString(),
+                  result.messageId,
+                );
+              }
+            })
+            .catch((err) => {
+              this.logger.error(
+                `[Non-Text Pipeline] Failed to send text reminder to Instagram: ${err.message}`,
+              );
+            });
+        }
+      }
+
+      const updatedChat = await this.chatRepo.updateLastMessage(
+        chat._id.toString(),
+        replyText,
+        new Date(),
+      );
+      if (updatedChat) {
+        this.eventEmitter.emit('chat.updated', updatedChat);
+      }
+
+      return { chat: updatedChat || chat, message: incomingMsg, aiReply: aiMsg, lead: null };
+    }
+
+    return { chat, message: incomingMsg, aiReply: null, lead: null };
+  }
+
+  /**
    * Main entry point: called by webhook or WebSocket when a new customer message arrives.
    */
   async handleIncomingMessage(params: {
@@ -765,28 +898,51 @@ export class ChatsService implements OnModuleInit {
       this.eventEmitter.emit('chat.updated', updatedChat);
     }
 
-    // 10. Create Lead if all questions answered
+    // 10. Handle Lead creation and status progression (WARM and HOT)
     let lead: LeadDocument | null = null;
-    if (aiResponse.isComplete) {
-      this.logger.log(
-        `[Pipeline] All lead questions answered for chat ${chat._id}! Checking for existing lead...`,
-      );
-      const existingLead = await this.leadsService.findByChatId(
-        chat._id.toString(),
-      );
+    const existingLead = await this.leadsService.findByChatId(
+      chat._id.toString(),
+    );
+
+    if (newStatus === ChatStatus.HOT || aiResponse.isComplete) {
       if (!existingLead) {
         lead = await this.leadsService.createFromChat(
           organizationId,
           chat._id.toString(),
           aiResponse.collectedData,
+          LeadType.HOT,
         );
         this.eventEmitter.emit('lead.new', lead);
         this.logger.log(
-          `[Pipeline] 🎉 New Lead created: ${lead._id} for chat ${chat._id}`,
+          `[Pipeline] 🎉 New HOT Lead created: ${lead._id} for chat ${chat._id}`,
         );
       } else {
+        lead = await this.leadsService.update(existingLead._id.toString(), {
+          data: aiResponse.collectedData,
+          type: LeadType.HOT,
+        });
+        this.logger.log(
+          `[Pipeline] Promoted existing lead ${existingLead._id} to HOT for chat ${chat._id}`,
+        );
+      }
+    } else if (newStatus === ChatStatus.WARM) {
+      if (!existingLead) {
+        lead = await this.leadsService.createFromChat(
+          organizationId,
+          chat._id.toString(),
+          aiResponse.collectedData,
+          LeadType.WARM,
+        );
+        this.eventEmitter.emit('lead.new', lead);
+        this.logger.log(
+          `[Pipeline] 🟡 New WARM Lead created: ${lead._id} for chat ${chat._id}`,
+        );
+      } else {
+        lead = await this.leadsService.update(existingLead._id.toString(), {
+          data: aiResponse.collectedData,
+        });
         this.logger.debug(
-          `[Pipeline] Lead already exists for chat ${chat._id} (${existingLead._id})`,
+          `[Pipeline] Updated collected data for WARM lead ${existingLead._id} (chat ${chat._id})`,
         );
       }
     }
@@ -942,16 +1098,36 @@ export class ChatsService implements OnModuleInit {
       this.eventEmitter.emit('chat.updated', updatedChat);
     }
 
-    // 6. Create Lead if complete
-    if (aiResponse.isComplete) {
-      const existingLead = await this.leadsService.findByChatId(chatId);
+    // 6. Handle Lead creation and status progression (WARM and HOT)
+    const existingLead = await this.leadsService.findByChatId(chatId);
+    if (newStatus === ChatStatus.HOT || aiResponse.isComplete) {
       if (!existingLead) {
         const lead = await this.leadsService.createFromChat(
           organizationId,
           chatId,
           aiResponse.collectedData,
+          LeadType.HOT,
         );
         this.eventEmitter.emit('lead.new', lead);
+      } else {
+        await this.leadsService.update(existingLead._id.toString(), {
+          data: aiResponse.collectedData,
+          type: LeadType.HOT,
+        });
+      }
+    } else if (newStatus === ChatStatus.WARM) {
+      if (!existingLead) {
+        const lead = await this.leadsService.createFromChat(
+          organizationId,
+          chatId,
+          aiResponse.collectedData,
+          LeadType.WARM,
+        );
+        this.eventEmitter.emit('lead.new', lead);
+      } else {
+        await this.leadsService.update(existingLead._id.toString(), {
+          data: aiResponse.collectedData,
+        });
       }
     }
   }
