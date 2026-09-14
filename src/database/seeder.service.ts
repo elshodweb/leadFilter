@@ -43,10 +43,18 @@ export class SeederService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    await this.seed(false);
+    if (
+      process.env.SEED_DEMO_DATA === 'true' &&
+      process.env.NODE_ENV !== 'production'
+    ) {
+      await this.seed(false);
+    }
   }
 
   async seed(force = false) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Demo seeding is disabled in production');
+    }
     const existingUsers = await this.userModel.countDocuments();
     if (existingUsers > 0 && !force) {
       this.logger.log(

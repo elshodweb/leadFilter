@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { createHash, randomUUID } from 'node:crypto';
 import { UsersService } from '../users/users.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { LoginDto } from './dto/login.dto';
@@ -42,7 +43,10 @@ export class AuthService {
     });
 
     const tokens = await this.generateTokens(user);
-    const hashedRefresh = await bcrypt.hash(tokens.refreshToken, 10);
+    const hashedRefresh = await bcrypt.hash(
+      this.refreshDigest(tokens.refreshToken),
+      10,
+    );
     await this.usersService.setRefreshToken(user._id.toString(), hashedRefresh);
 
     this.logger.log(
@@ -82,7 +86,10 @@ export class AuthService {
     const tokens = await this.generateTokens(user);
 
     // Store hashed refresh token
-    const hashedRefresh = await bcrypt.hash(tokens.refreshToken, 10);
+    const hashedRefresh = await bcrypt.hash(
+      this.refreshDigest(tokens.refreshToken),
+      10,
+    );
     await this.usersService.setRefreshToken(user._id.toString(), hashedRefresh);
 
     this.logger.log(
@@ -104,20 +111,35 @@ export class AuthService {
   async refresh(userId: string, rawRefreshToken: string) {
     this.logger.debug(`Token refresh request for userId: ${userId}`);
     const user = await this.usersService.findByIdWithRefreshToken(userId);
-    if (!user || !user.refreshToken) {
-      this.logger.warn(`Token refresh failed: user or stored token missing for ${userId}`);
+    if (!user || user.status !== 'ACTIVE' || !user.refreshToken) {
+      this.logger.warn(
+        `Token refresh failed: user or stored token missing for ${userId}`,
+      );
       throw new UnauthorizedException('Access denied');
     }
 
-    const tokenMatch = await bcrypt.compare(rawRefreshToken, user.refreshToken);
+    const tokenMatch = await bcrypt.compare(
+      this.refreshDigest(rawRefreshToken),
+      user.refreshToken,
+    );
     if (!tokenMatch) {
-      this.logger.warn(`Token refresh failed: token mismatch for user ${userId}`);
+      this.logger.warn(
+        `Token refresh failed: token mismatch for user ${userId}`,
+      );
       throw new UnauthorizedException('Access denied');
     }
 
     const tokens = await this.generateTokens(user);
-    const hashedRefresh = await bcrypt.hash(tokens.refreshToken, 10);
-    await this.usersService.setRefreshToken(user._id.toString(), hashedRefresh);
+    const hashedRefresh = await bcrypt.hash(
+      this.refreshDigest(tokens.refreshToken),
+      10,
+    );
+    const rotated = await this.usersService.rotateRefreshToken(
+      user._id.toString(),
+      user.refreshToken,
+      hashedRefresh,
+    );
+    if (!rotated) throw new UnauthorizedException('Access denied');
 
     this.logger.debug(`Token refreshed successfully for user ${userId}`);
     return tokens;
@@ -138,6 +160,10 @@ export class AuthService {
     return safe;
   }
 
+  private refreshDigest(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
   private async generateTokens(user: any) {
     const payload: JwtPayload = {
       sub: user._id.toString(),
@@ -149,7 +175,7 @@ export class AuthService {
     const accessSecret = this.configService.get<string>('jwt.accessSecret')!;
     const refreshSecret = this.configService.get<string>('jwt.refreshSecret')!;
     const accessExpiresIn =
-      this.configService.get<string>('jwt.accessExpiresIn') || '7d';
+      this.configService.get<string>('jwt.accessExpiresIn') || '15m';
     const refreshExpiresIn =
       this.configService.get<string>('jwt.refreshExpiresIn') || '7d';
 
@@ -160,6 +186,7 @@ export class AuthService {
       }),
       this.jwtService.signAsync(payload as any, {
         secret: refreshSecret,
+        jwtid: randomUUID(),
         expiresIn: refreshExpiresIn as any,
       }),
     ]);

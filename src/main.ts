@@ -30,11 +30,11 @@ async function bootstrap() {
 
   // Swagger
   const config = new DocumentBuilder()
-    .setTitle('LeadFilter with ai API')
+    .setTitle('LeadFilter API')
     .setDescription(
       `Multi-tenant AI-powered lead qualification backend.
       
-**Authentication**: All endpoints require a JWT Bearer token except \`POST /auth/login\` and \`GET|POST /webhook/instagram\`.
+**Authentication**: All endpoints require a JWT Bearer token except \`POST /auth/login\`, \`POST /auth/refresh\` (requires a refresh token), and \`GET|POST /webhook/instagram\`.
 
 **WebSocket** events are documented in \`/docs/WEBSOCKET_API.md\`.`,
     )

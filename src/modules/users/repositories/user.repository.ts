@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { User, UserDocument } from '../schemas/user.schema';
+import { User, UserDocument, UserStatus } from '../schemas/user.schema';
 import {
   PaginatedResult,
   createPaginatedResponse,
@@ -60,6 +60,18 @@ export class UserRepository {
 
   async setRefreshToken(id: string, token: string | null): Promise<void> {
     await this.model.findByIdAndUpdate(id, { refreshToken: token });
+  }
+
+  async rotateRefreshToken(
+    id: string,
+    previous: string,
+    next: string,
+  ): Promise<boolean> {
+    const result = await this.model.updateOne(
+      { _id: id, refreshToken: previous, status: UserStatus.ACTIVE },
+      { $set: { refreshToken: next } },
+    );
+    return result.modifiedCount === 1;
   }
 
   async delete(id: string): Promise<UserDocument | null> {

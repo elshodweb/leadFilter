@@ -12,6 +12,8 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { Roles } from './decorators/roles.decorator';
+import { UserRole } from '../users/schemas/user.schema';
 import { Public } from './decorators/public.decorator';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import type { AuthenticatedRequest } from '../../common/interfaces/auth.interface';
@@ -21,10 +23,13 @@ import type { AuthenticatedRequest } from '../../common/interfaces/auth.interfac
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Public()
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
   @Post('register')
   @HttpCode(201)
-  @ApiOperation({ summary: 'Register a new organization and admin user' })
+  @ApiOperation({
+    summary: 'Provision an organization and global admin (existing admin only)',
+  })
   register(@Body() dto: RegisterOrganizationDto) {
     return this.authService.register(dto);
   }

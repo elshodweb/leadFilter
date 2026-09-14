@@ -750,7 +750,7 @@ export function ChatSidebar({ organizationId, token }) {
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| POST | `/auth/register` | Public | Register new Org + Admin User |
+| POST | `/auth/register` | Bearer + ADMIN | Provision an organization and global admin |
 | POST | `/auth/login` | Public | Login → tokens |
 | POST | `/auth/refresh` | Refresh token | Get new token pair |
 | POST | `/auth/logout` | Bearer | Logout |

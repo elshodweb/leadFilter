@@ -1,10 +1,16 @@
 import {
+  WsException,
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
+import { InjectModel } from '@nestjs/mongoose';
+import { isMongoId } from 'class-validator';
+import { Model } from 'mongoose';
+import { Chat, ChatDocument } from '../chats/schemas/chat.schema';
+import { UserRole } from '../users/schemas/user.schema';
 import { Server } from 'socket.io';
 import { UseFilters, UseGuards, UsePipes, Logger } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
@@ -26,12 +32,17 @@ export class MessagesGateway {
   constructor(
     private readonly messagesService: MessagesService,
     private readonly eventEmitter: EventEmitter2,
+    @InjectModel(Chat.name) private readonly chatModel: Model<ChatDocument>,
   ) {}
 
   /** Get paginated messages for a chat */
   @SubscribeMessage('messages:list')
   @UsePipes(WsValidationPipe)
-  async handleMessageList(@MessageBody() dto: ListMessagesDto) {
+  async handleMessageList(
+    @MessageBody() dto: ListMessagesDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    await this.requireChat(dto.chatId, client);
     this.logger.debug(
       `[WS messages:list] ChatId: ${dto.chatId}, Page: ${dto.page || 1}, Limit: ${dto.limit || 20}`,
     );
@@ -49,7 +60,8 @@ export class MessagesGateway {
     @MessageBody() dto: SendMessageDto,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    const orgId = client.user.organizationId;
+    const chat = await this.requireChat(dto.chatId, client);
+    const orgId = chat.organizationId.toString();
     this.logger.log(
       `[WS message:send] Agent ${client.user.email} -> Chat ${dto.chatId}: "${dto.content.substring(0, 40)}..."`,
     );
@@ -67,6 +79,17 @@ export class MessagesGateway {
     });
     this.eventEmitter.emit('message.new', msg);
     return msg;
+  }
+
+  private async requireChat(chatId: string, client: AuthenticatedSocket) {
+    if (!isMongoId(chatId)) throw new WsException('Invalid chatId');
+    const filter: Record<string, string> = { _id: chatId };
+    if (client.user.role !== UserRole.ADMIN) {
+      filter.organizationId = client.user.organizationId;
+    }
+    const chat = await this.chatModel.findOne(filter).lean().exec();
+    if (!chat) throw new WsException('Chat not found');
+    return chat;
   }
 
   // ── Event-driven broadcasts (fired by ChatsService) ───────────

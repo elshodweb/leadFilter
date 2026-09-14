@@ -41,3 +41,11 @@ export class User {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ organizationId: 1 });
+
+UserSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete (ret as Partial<User>).password;
+    delete (ret as Partial<User>).refreshToken;
+    return ret;
+  },
+});

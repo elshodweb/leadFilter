@@ -52,7 +52,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
         );
       }
     } else if (exception instanceof Error) {
-      errorMessage = exception.message;
       const user = (request as any)?.user;
       const userContext = user
         ? ` [User: ${user.userId || user.sub}, Org: ${user.organizationId}]`
@@ -66,6 +65,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `[${request.method}] ${request.url} - Unknown Exception: ${JSON.stringify(exception)}`,
       );
     }
+
+    if (status >= 500) errorMessage = 'Internal server error';
 
     const payload: ApiResponse<null> = {
       statusCode: status,

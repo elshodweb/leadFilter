@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { UserRepository } from './repositories/user.repository';
@@ -23,7 +24,9 @@ export class UsersService {
     );
     const existing = await this.repo.findByEmail(dto.email);
     if (existing) {
-      this.logger.warn(`User creation failed: email ${dto.email} already exists`);
+      this.logger.warn(
+        `User creation failed: email ${dto.email} already exists`,
+      );
       throw new ConflictException('Email already in use');
     }
 
@@ -38,7 +41,9 @@ export class UsersService {
   }
 
   async findAll(organizationId: string, page = 1, limit = 20) {
-    this.logger.debug(`Listing users for org ${organizationId} (page=${page}, limit=${limit})`);
+    this.logger.debug(
+      `Listing users for org ${organizationId} (page=${page}, limit=${limit})`,
+    );
     return this.repo.findAllByOrg(organizationId, page, limit);
   }
 
@@ -72,6 +77,21 @@ export class UsersService {
     const deleted = await this.repo.delete(id);
     if (!deleted) throw new NotFoundException(`User ${id} not found`);
     return deleted;
+  }
+
+  async findForAuthentication(id: string) {
+    const user = await this.repo.findById(id);
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException();
+    return {
+      userId: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId.toString(),
+    };
+  }
+
+  rotateRefreshToken(id: string, previous: string, next: string) {
+    return this.repo.rotateRefreshToken(id, previous, next);
   }
 
   /** Used internally by AuthService */

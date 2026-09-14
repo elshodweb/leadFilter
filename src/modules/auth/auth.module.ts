@@ -28,6 +28,13 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     WsJwtGuard,
   ],
   controllers: [AuthController],
-  exports: [AuthService, JwtAuthGuard, RolesGuard, WsJwtGuard, JwtModule],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    RolesGuard,
+    WsJwtGuard,
+    JwtModule,
+    UsersModule,
+  ],
 })
 export class AuthModule {}
